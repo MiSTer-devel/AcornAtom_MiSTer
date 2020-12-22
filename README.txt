@@ -27,8 +27,9 @@ The original keyboard is as originally written ie shift 8 is ( and shift 9 is )
 
 The game keyboard just reverses the ctrl and shift as on the original keyboard, for games like Asteroids.
 
-In the release folder is a 100MB blank.vhd file this has been formatted in MSDOS.
-Copy this file to boot.vhd
+CANNOT DOWMNLOAD--In the release folder is a 100MB blank.vhd file this has been formatted in MSDOS.
+
+You need a boot.vhd file around a 100MB FAT formatted 
 Attach the boot.vhd and copy software onto it. Detach the VHD and place the file in the AcornAtom folder on your SD card.
 To auto boot the software menu Shift-Break(f10), Ctrl-Break disables the MMC Rom
 The best software source is the AtomSoftwareArchive V11 zip 11.9MB
