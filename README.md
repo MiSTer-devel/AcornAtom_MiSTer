@@ -34,6 +34,7 @@ The game keyboard just reverses the ctrl and shift as on the original keyboard, 
 
 ## Instructions
 You need a boot.vhd file formatted as FAT and around 100MB. Attach the boot.vhd and copy software onto it. 
+There is a blank.zip file in releases. Unzip and rename boot.vhd.
 
 Detach the VHD and place the file in the AcornAtom folder on your SD card. 
 
