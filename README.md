@@ -37,7 +37,7 @@ You need a boot.vhd file formatted as FAT and around 100MB. There is a blank.zip
 
 Attach the boot.vhd and copy software onto it.
 
-Detach the VHD and place the file in the AcornAtom folder on your SD card. 
+Detach the VHD and place the file in the games/AcornAtom folder on your SD card. 
 
 To auto boot the software menu Shift-Break(f10), Ctrl-Break disables the MMC Rom
 
