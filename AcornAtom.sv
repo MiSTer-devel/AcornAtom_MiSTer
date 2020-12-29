@@ -194,7 +194,7 @@ wire        ioctl_download;
 wire  [7:0] ioctl_index;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
-wire [15:0] ioctl_dout;
+wire [7:0]  ioctl_dout;
 wire        forced_scandoubler;
 wire [21:0] gamma_bus;
 
@@ -202,9 +202,9 @@ wire [31:0] sd_lba;
 wire        sd_rd;
 wire        sd_wr;
 wire        sd_ack;
-wire  [7:0] sd_buff_addr;
-wire [15:0] sd_buff_dout;
-wire [15:0] sd_buff_din;
+wire  [8:0] sd_buff_addr;
+wire [7:0]  sd_buff_dout;
+wire [7:0]  sd_buff_din;
 wire        sd_buff_wr;
 wire        img_mounted;
 wire        img_readonly;
@@ -215,7 +215,7 @@ wire [64:0] RTC;
 
 wire ps2_clk,ps2_data;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(1)) hps_io
+hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -347,6 +347,7 @@ AtomFpga_Core AcornAtom
 	.clk_vga(clk_25),
 	.clk_main(clk_32),
 	.clk_dac(clk_sys),
+	.clk_avr(clk_16),
 	
         // Keyboard
 	.ps2_key(ps2_key),
@@ -482,7 +483,7 @@ reg vsd_sel = 0;
 always @(posedge clk_sys) if(img_mounted) vsd_sel <= |img_size;
 
 wire vsdmiso;
-sd_card #(1) sd_card
+sd_card #(0) sd_card
 (
 	.*,
 
