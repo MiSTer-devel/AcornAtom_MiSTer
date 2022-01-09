@@ -329,7 +329,12 @@ begin
     not_cpu_R_W_n <= not cpu_R_W_n;
 	 
     -- reset logic
-	 RSTn			<= key_break and ext_reset_n;
+	 process (clk_main) 
+	 begin
+	 if rising_edge(clk_main) then
+		RSTn			<= key_break and ext_reset_n;
+	end if;
+	end process;
 	 reset		<= not RSTn;
 --    process(clk_main)
 --    begin

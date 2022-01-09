@@ -214,8 +214,9 @@ parameter CONF_STR = {
 };
 
 /////////////////  CLOCKS  ////////////////////////
-
-wire clk_sys;
+wire clk_main = clk_sys;
+wire clk_sys = clk_32;
+wire clk_100;
 wire clk_16;
 wire clk_32;
 wire clk_25;
@@ -225,7 +226,7 @@ pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_sys),
+	.outclk_0(clk_100),
 	.outclk_1(clk_16),
 	.outclk_2(clk_25),
 	.outclk_3(clk_32)
@@ -381,7 +382,7 @@ wire  [7:0] mem_din,mem_dout;
 
 spram #(8, 18, 196608, "roms/ATOM192k.mif") rom
 (
-	.clock(clk_sys),
+	.clock(clk_main),
 	.address(mem_addr),
 	.data(mem_din),
 	.wren(mem_we),
@@ -399,7 +400,7 @@ AtomFpga_Core AcornAtom
 (
 			// clocks
 	.clk_vga(clk_25),
-	.clk_main(clk_32),
+	.clk_main(clk_main),
 	.clk_dac(clk_sys),
 	.clk_avr(clk_16),
 	
@@ -492,7 +493,7 @@ assign AUDIO_S = 1'b0;
 wire hs, vs, hblank, vblank,  clk_sel;
 wire [1:0] r,g,b;
 
-assign CLK_VIDEO = clk_sys;// clk_25;
+assign CLK_VIDEO = clk_100;// clk_25;
 wire freeze_sync;
 
 reg ce_pix;
