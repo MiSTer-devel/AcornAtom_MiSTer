@@ -7,7 +7,7 @@ entity mc6847 is
     generic
         (
             T1_VARIANT   : boolean := false;
-            CVBS_NOT_VGA : boolean := false);
+            CVBS_NOT_VGA : boolean := true);
     port
         (
             clk            : in  std_logic;
@@ -37,7 +37,8 @@ entity mc6847 is
             cvbs           : out std_logic_vector(7 downto 0);
             black_backgnd  : in  std_logic;
             char_a         : out std_logic_vector(11 downto 0);
-            char_d_o       : in std_logic_vector(7 downto 0)
+            char_d_o       : in std_logic_vector(7 downto 0);
+            pixel_clock    : out std_logic
             );
 end mc6847;
 
@@ -67,6 +68,17 @@ architecture SYN of mc6847 is
 -- constant H_RIGHT_BORDER     : integer := H_VIDEO + 54;---3;      -- tweak to get to 60hz exactly
 -- constant H_TOTAL_PER_LINE   : integer := H_RIGHT_BORDER;
 
+
+
+--  constant H_FRONT_PORCH      : integer := 11-1+1;
+--  constant H_HORIZ_SYNC       : integer := H_FRONT_PORCH + 35+2;
+--  constant H_BACK_PORCH       : integer := H_HORIZ_SYNC + 34+1;
+--  constant H_LEFT_BORDER      : integer := H_BACK_PORCH + 61+1+3; -- adjust for hblank de-assert @sys_count=6
+--  constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16;
+--  constant H_VIDEO            : integer := H_LEFT_BORDER + 256;
+--  constant H_RIGHT_BORDER     : integer := H_VIDEO + 61+1-3;      -- "
+--  constant H_TOTAL_PER_LINE   : integer := H_RIGHT_BORDER;
+
     constant H_FRONT_PORCH    : integer := 8;
     constant H_HORIZ_SYNC     : integer := H_FRONT_PORCH + 48;
     constant H_BACK_PORCH     : integer := H_HORIZ_SYNC + 24;
@@ -93,6 +105,7 @@ architecture SYN of mc6847 is
     signal inv_s      : std_logic;
 
     -- VGA signals
+	signal vga_clk_ena					: std_logic;
     signal vga_hsync        : std_logic;
     signal vga_vsync        : std_logic;
     signal vga_hblank       : std_logic;
@@ -112,6 +125,7 @@ architecture SYN of mc6847 is
     signal cvbs_vborder      : std_logic;
     signal cvbs_linebuf_we   : std_logic;
     signal cvbs_linebuf_addr : std_logic_vector(8 downto 0);
+    signal cvbs_videoaddr    :  std_logic_vector (12 downto 0);
 
     signal active_h_start : std_logic := '0';
     signal an_s_r         : std_logic;
@@ -213,6 +227,7 @@ begin
                 cvbs_clk_ena <= toggle;
                 toggle       := not toggle;
             end if;
+      vga_clk_ena <= clk_ena;
         end if;
     end process PROC_CLOCKS;
 
@@ -229,7 +244,7 @@ begin
             vga_vsync  <= '1';
             vga_hblank <= '0';
             
-        elsif rising_edge (clk) and clk_ena = '1' then
+        elsif rising_edge (clk) and vga_clk_ena = '1' then
 
             -- start hsync when cvbs comes out of vblank
             if vga_vblank_r = '1' and vga_vblank = '0' then
@@ -273,7 +288,7 @@ begin
         end if;
     end process;
 
-    -- generate horizontal timing for CVBS
+    -- generate horizontal timing f or CVBS
     -- generate line buffer address for writing CVBS char_d_o
     PROC_CVBS : process (clk, reset)
         variable h_count        : integer range 0 to H_TOTAL_PER_LINE;
@@ -421,20 +436,25 @@ begin
             cvbs_hblank_r        := cvbs_hblank;
 
             if an_g_s = '0' then
-                lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
+               -- lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
+                lookup(4 downto 0) <= active_h_count(7 downto 3) -1;
                 videoaddr          <= videoaddr_base(12 downto 5) & lookup(4 downto 0);
             else
                 case gm is              --lookupaddr
                     when "000" | "001" | "011" | "101" =>
-                        lookup(3 downto 0) <= active_h_count(7 downto 4) + 1;
+                        --lookup(3 downto 0) <= active_h_count(7 downto 4) + 1;
+                        lookup(3 downto 0) <= active_h_count(7 downto 4) -1;
                         videoaddr          <= videoaddr_base(12 downto 4) & lookup(3 downto 0);
                     when "010" | "100" | "110" | "111" =>
-                        lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
+                        --lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
+                        lookup(4 downto 0) <= active_h_count(7 downto 3) -1;
                         videoaddr          <= videoaddr_base(12 downto 5) & lookup(4 downto 0);
                     when others =>
                         null;
                 end case;
             end if;
+				-- delay one cycle
+				--videoaddr<=cvbs_videoaddr;
         end if;  -- cvbs_clk_ena
     end process;
 
@@ -615,7 +635,8 @@ begin
             if CVBS_NOT_VGA then
                 if cvbs_clk_ena = '1' then
                     if cvbs_hblank = '0' and cvbs_vblank = '0' then
-                        map_palette (vga_char_d_o, r, g, b);
+                        --map_palette (vga_char_d_o, r, g, b);
+								map_palette (pixel_char_d_o,r,g,b);
                     else
                         r := (others => '0');
                         g := (others => '0');
@@ -670,11 +691,13 @@ begin
             vsync  <= cvbs_vsync;
             hblank <= cvbs_hblank;
             vblank <= cvbs_vblank;
+            pixel_clock<=cvbs_clk_ena;
         else
             hsync  <= vga_hsync;
             vsync  <= vga_vsync;
             hblank <= not vga_hborder;
             vblank <= not cvbs_vborder;
+            pixel_clock<=vga_clk_ena;
         end if;
 
     end process PROC_OUTPUT;

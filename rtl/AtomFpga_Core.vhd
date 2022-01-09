@@ -22,10 +22,13 @@ use ieee.numeric_std.all;
 entity AtomFpga_Core is
     port (
         -- Clocking
+        clk_vid          : in    std_logic; -- nominally 25.175MHz VGA clock
+        clk_vid_en       : in    std_logic; -- nominally 25.175MHz VGA clock
         clk_vga          : in    std_logic; -- nominally 25.175MHz VGA clock
         clk_main         : in    std_logic; -- clock for the main system
         clk_dac          : in    std_logic; -- fast clock for the 1-bit DAC
 		  clk_avr          : in    std_logic; -- clock for the AtoMMC AVR
+        pixel_clock : out std_logic;
 		  
         -- Keyboard/mouse
 		  ps2_key			 : in 	std_logic_vector (10 downto 0);
@@ -366,8 +369,8 @@ begin
     -- A further few bugs fixed by myself
     Inst_mc6847 : entity work.mc6847
         port map (
-            clk            => clk_vga,
-            clk_ena        => clock_vga_en,
+            clk            => clk_vid,
+            clk_ena        => clk_vid_en,
             reset          => not ext_reset_n,
             da0            => open,
             videoaddr      => vid_addr,
@@ -393,7 +396,8 @@ begin
             cvbs           => open,
             black_backgnd  => BLACK_BACKGND,
             char_a         => char_a,
-            char_d_o       => char_d_o
+            char_d_o       => char_d_o,
+				pixel_clock    => pixel_clock
             );
 
        -- 8Kx8 Dual port video RAM

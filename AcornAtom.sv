@@ -216,22 +216,73 @@ parameter CONF_STR = {
 /////////////////  CLOCKS  ////////////////////////
 wire clk_main = clk_sys;
 wire clk_sys = clk_32;
-wire clk_100;
+//wire clk_100;
 wire clk_16;
 wire clk_32;
-wire clk_25;
+//wire clk_25;
+wire clk_42;
 wire pll_locked;
 
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
+	.outclk_0(clk_42),
+	.outclk_1(clk_32),
+	.outclk_2(clk_16)
+/*	
 	.outclk_0(clk_100),
 	.outclk_1(clk_16),
 	.outclk_2(clk_25),
-	.outclk_3(clk_32)
+	.outclk_3(clk_32),
+	.outclk_4(clk_42) // for 15khz video
+*/
 );
 
+reg clk_14M318_ena ;
+reg [1:0] count;
+
+
+always @(posedge clk_42)
+begin
+	if (reset)
+		count<=0;
+	else
+	begin
+		clk_14M318_ena <= 0;
+		if (count == 'd2)
+		begin
+		  clk_14M318_ena <= 1;
+        count <= 0;
+		end
+		else
+		begin
+			count<=count+1;
+		end
+	end
+end
+
+reg clk_7_ena ;
+reg [2:0] count2;
+
+always @(posedge clk_42)
+begin
+	if (reset)
+		count2<=0;
+	else
+	begin
+		clk_7_ena <= 0;
+		if (count2 == 'd6)
+		begin
+		  clk_7_ena <= 1;
+        count2 <= 0;
+		end
+		else
+		begin
+			count2<=count2+1;
+		end
+	end
+end
 
 
 /////////////////  HPS  ///////////////////////////
@@ -395,14 +446,21 @@ spram #(8, 18, 196608, "roms/ATOM192k.mif") rom
 wire charset = status[8];
 
 wire tape_out;
-
+wire pixel_clock;
 AtomFpga_Core AcornAtom
 (
 			// clocks
-	.clk_vga(clk_25),
+			
+	.clk_vid(clk_42),
+   .clk_vid_en(clk_14M318_ena),
+
+			
+	.clk_vga(clk_42),
 	.clk_main(clk_main),
 	.clk_dac(clk_sys),
 	.clk_avr(clk_16),
+	
+	.pixel_clock(pixel_clock),
 	
         // Keyboard
 	.ps2_key(ps2_key),
@@ -493,12 +551,12 @@ assign AUDIO_S = 1'b0;
 wire hs, vs, hblank, vblank,  clk_sel;
 wire [1:0] r,g,b;
 
-assign CLK_VIDEO = clk_100;// clk_25;
+assign CLK_VIDEO = clk_42;// clk_25;
 wire freeze_sync;
 
 reg ce_pix;
 always @(posedge CLK_VIDEO) begin
-	reg [2:0] div;
+	reg [1:0] div;
 
 	div <= div + 1'b1;
 	ce_pix <=  !div;
@@ -510,7 +568,7 @@ video_mixer #(.GAMMA(1)) video_mixer
    .*,
 
    .CLK_VIDEO(CLK_VIDEO),
-   .ce_pix(ce_pix),
+   .ce_pix(pixel_clock),
 
 	.hq2x(scale==1),
 
