@@ -70,23 +70,23 @@ architecture SYN of mc6847 is
 
 
 
---  constant H_FRONT_PORCH      : integer := 11-1+1;
---  constant H_HORIZ_SYNC       : integer := H_FRONT_PORCH + 35+2;
---  constant H_BACK_PORCH       : integer := H_HORIZ_SYNC + 34+1;
---  constant H_LEFT_BORDER      : integer := H_BACK_PORCH + 61+1+3; -- adjust for hblank de-assert @sys_count=6
---  constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16;
---  constant H_VIDEO            : integer := H_LEFT_BORDER + 256;
---  constant H_RIGHT_BORDER     : integer := H_VIDEO + 61+1-3;      -- "
---  constant H_TOTAL_PER_LINE   : integer := H_RIGHT_BORDER;
+  constant H_FRONT_PORCH      : integer := 11-1+1;
+  constant H_HORIZ_SYNC       : integer := H_FRONT_PORCH + 35+2;
+  constant H_BACK_PORCH       : integer := H_HORIZ_SYNC + 34+1;
+  constant H_LEFT_BORDER      : integer := H_BACK_PORCH + 61+1+3; -- adjust for hblank de-assert @sys_count=6
+  constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16 + 0;
+  constant H_VIDEO            : integer := H_LEFT_BORDER + 256;
+  constant H_RIGHT_BORDER     : integer := H_VIDEO + 61+1-3;      -- "
+  constant H_TOTAL_PER_LINE   : integer := H_RIGHT_BORDER;
 
-    constant H_FRONT_PORCH    : integer := 8;
-    constant H_HORIZ_SYNC     : integer := H_FRONT_PORCH + 48;
-    constant H_BACK_PORCH     : integer := H_HORIZ_SYNC + 24;
-    constant H_LEFT_BORDER    : integer := H_BACK_PORCH + 32;  -- adjust for hblank de-assert @sys_count=6
-    constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16;
-    constant H_VIDEO          : integer := H_LEFT_BORDER + 256;
-    constant H_RIGHT_BORDER   : integer := H_VIDEO + 31;       -- "
-    constant H_TOTAL_PER_LINE : integer := H_RIGHT_BORDER;
+--    constant H_FRONT_PORCH    : integer := 8;
+--    constant H_HORIZ_SYNC     : integer := H_FRONT_PORCH + 48;
+--    constant H_BACK_PORCH     : integer := H_HORIZ_SYNC + 24;
+--    constant H_LEFT_BORDER    : integer := H_BACK_PORCH + 32;  -- adjust for hblank de-assert @sys_count=6
+--    constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16;
+--    constant H_VIDEO          : integer := H_LEFT_BORDER + 256;
+--    constant H_RIGHT_BORDER   : integer := H_VIDEO + 31;       -- "
+--    constant H_TOTAL_PER_LINE : integer := H_RIGHT_BORDER;
 
     constant V2_FRONT_PORCH     : integer := 2;
     constant V2_VERTICAL_SYNC   : integer := V2_FRONT_PORCH + 2;
@@ -125,7 +125,6 @@ architecture SYN of mc6847 is
     signal cvbs_vborder      : std_logic;
     signal cvbs_linebuf_we   : std_logic;
     signal cvbs_linebuf_addr : std_logic_vector(8 downto 0);
-    signal cvbs_videoaddr    :  std_logic_vector (12 downto 0);
 
     signal active_h_start : std_logic := '0';
     signal an_s_r         : std_logic;
@@ -437,24 +436,22 @@ begin
 
             if an_g_s = '0' then
                -- lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
-                lookup(4 downto 0) <= active_h_count(7 downto 3) -1;
+                lookup(4 downto 0) <= active_h_count(7 downto 3) ;
                 videoaddr          <= videoaddr_base(12 downto 5) & lookup(4 downto 0);
             else
                 case gm is              --lookupaddr
                     when "000" | "001" | "011" | "101" =>
                         --lookup(3 downto 0) <= active_h_count(7 downto 4) + 1;
-                        lookup(3 downto 0) <= active_h_count(7 downto 4) -1;
+                        lookup(3 downto 0) <= active_h_count(7 downto 4) ;
                         videoaddr          <= videoaddr_base(12 downto 4) & lookup(3 downto 0);
                     when "010" | "100" | "110" | "111" =>
                         --lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
-                        lookup(4 downto 0) <= active_h_count(7 downto 3) -1;
+                        lookup(4 downto 0) <= active_h_count(7 downto 3);
                         videoaddr          <= videoaddr_base(12 downto 5) & lookup(4 downto 0);
                     when others =>
                         null;
                 end case;
             end if;
-				-- delay one cycle
-				--videoaddr<=cvbs_videoaddr;
         end if;  -- cvbs_clk_ena
     end process;
 
