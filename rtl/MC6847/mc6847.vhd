@@ -72,9 +72,9 @@ architecture SYN of mc6847 is
 
   constant H_FRONT_PORCH      : integer := 11-1+1;
   constant H_HORIZ_SYNC       : integer := H_FRONT_PORCH + 35+2;
-  constant H_BACK_PORCH       : integer := H_HORIZ_SYNC + 34+1;
-  constant H_LEFT_BORDER      : integer := H_BACK_PORCH + 61+1+3; -- adjust for hblank de-assert @sys_count=6
-  constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16 + 0;
+  constant H_BACK_PORCH       : integer := H_HORIZ_SYNC + 34+1+2; -- AJS
+  constant H_LEFT_BORDER      : integer := H_BACK_PORCH + 61+1+3 ; -- adjust for hblank de-assert @sys_count=6
+  constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16 +8;
   constant H_VIDEO            : integer := H_LEFT_BORDER + 256;
   constant H_RIGHT_BORDER     : integer := H_VIDEO + 61+1-3;      -- "
   constant H_TOTAL_PER_LINE   : integer := H_RIGHT_BORDER;
@@ -401,9 +401,9 @@ begin
                     active_h_count := (others => '0');
                 elsif h_count = H_LEFT_BORDER then
                     cvbs_hblank    <= '0';
-                    active_h_start <= '1';
                 elsif h_count = H_VIDEO then
                     cvbs_hblank    <= '1';
+                    active_h_start <= '1';
                     active_h_count := active_h_count + 1;
                 elsif h_count = H_RIGHT_BORDER then
                     null;
@@ -436,13 +436,13 @@ begin
 
             if an_g_s = '0' then
                -- lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
-                lookup(4 downto 0) <= active_h_count(7 downto 3) ;
-                videoaddr          <= videoaddr_base(12 downto 5) & lookup(4 downto 0);
+                lookup(4 downto 0) <= active_h_count(7 downto 3);
+                videoaddr          <= videoaddr_base(12 downto 5) & lookup(4 downto 0) - 1;
             else
                 case gm is              --lookupaddr
                     when "000" | "001" | "011" | "101" =>
                         --lookup(3 downto 0) <= active_h_count(7 downto 4) + 1;
-                        lookup(3 downto 0) <= active_h_count(7 downto 4) ;
+                        lookup(3 downto 0) <= active_h_count(7 downto 4);
                         videoaddr          <= videoaddr_base(12 downto 4) & lookup(3 downto 0);
                     when "010" | "100" | "110" | "111" =>
                         --lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
