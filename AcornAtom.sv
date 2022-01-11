@@ -17,6 +17,7 @@
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //============================================================================
 
+
 module emu
 (
 	//Master input clock
@@ -27,7 +28,7 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [45:0] HPS_BUS,
+	inout  [47:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        CLK_VIDEO,
@@ -37,8 +38,9 @@ module emu
 	output        CE_PIXEL,
 
 	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-	output  [7:0] VIDEO_ARX,
-	output  [7:0] VIDEO_ARY,
+	//if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.
+	output [12:0] VIDEO_ARX,
+	output [12:0] VIDEO_ARY,
 
 	output  [7:0] VGA_R,
 	output  [7:0] VGA_G,
@@ -47,7 +49,41 @@ module emu
 	output        VGA_VS,
 	output        VGA_DE,    // = ~(VBlank | HBlank)
 	output        VGA_F1,
-	output  [1:0] VGA_SL,
+	output [1:0]  VGA_SL,
+	output        VGA_SCALER, // Force VGA scaler
+
+	input  [11:0] HDMI_WIDTH,
+	input  [11:0] HDMI_HEIGHT,
+	output        HDMI_FREEZE,
+
+`ifdef MISTER_FB
+	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
+	// FB_FORMAT:
+	//    [2:0] : 011=8bpp(palette) 100=16bpp 101=24bpp 110=32bpp
+	//    [3]   : 0=16bits 565 1=16bits 1555
+	//    [4]   : 0=RGB  1=BGR (for 16/24/32 modes)
+	//
+	// FB_STRIDE either 0 (rounded to 256 bytes) or multiple of pixel size (in bytes)
+	output        FB_EN,
+	output  [4:0] FB_FORMAT,
+	output [11:0] FB_WIDTH,
+	output [11:0] FB_HEIGHT,
+	output [31:0] FB_BASE,
+	output [13:0] FB_STRIDE,
+	input         FB_VBL,
+	input         FB_LL,
+	output        FB_FORCE_BLANK,
+
+`ifdef MISTER_FB_PALETTE
+	// Palette control for 8bit modes.
+	// Ignored for other video modes.
+	output        FB_PAL_CLK,
+	output  [7:0] FB_PAL_ADDR,
+	output [23:0] FB_PAL_DOUT,
+	input  [23:0] FB_PAL_DIN,
+	output        FB_PAL_WR,
+`endif
+`endif
 
 	output        LED_USER,  // 1 - ON, 0 - OFF.
 
@@ -62,7 +98,7 @@ module emu
 	// b[0]: osd button
 	output  [1:0] BUTTONS,
 
-	input			  CLK_AUDIO, //24.576 MHz
+	input         CLK_AUDIO, // 24.576 MHz
 	output [15:0] AUDIO_L,
 	output [15:0] AUDIO_R,
 	output        AUDIO_S,   // 1 - signed audio samples, 0 - unsigned
@@ -71,7 +107,7 @@ module emu
 	//ADC
 	inout   [3:0] ADC_BUS,
 
-	// SD-SPI
+	//SD-SPI
 	output        SD_SCK,
 	output        SD_MOSI,
 	input         SD_MISO,
@@ -104,6 +140,20 @@ module emu
 	output        SDRAM_nRAS,
 	output        SDRAM_nWE,
 
+`ifdef MISTER_DUAL_SDRAM
+	//Secondary SDRAM
+	//Set all output SDRAM_* signals to Z ASAP if SDRAM2_EN is 0
+	input         SDRAM2_EN,
+	output        SDRAM2_CLK,
+	output [12:0] SDRAM2_A,
+	output  [1:0] SDRAM2_BA,
+	inout  [15:0] SDRAM2_DQ,
+	output        SDRAM2_nCS,
+	output        SDRAM2_nCAS,
+	output        SDRAM2_nRAS,
+	output        SDRAM2_nWE,
+`endif
+
 	input         UART_CTS,
 	output        UART_RTS,
 	input         UART_RXD,
@@ -114,7 +164,7 @@ module emu
 	// Open-drain User port.
 	// 0 - D+/RX
 	// 1 - D-/TX
-	// 2..5 - USR1..USR4
+	// 2..6 - USR2..USR6
 	// Set USER_OUT to 1 to read from USER_IN.
 	input   [6:0] USER_IN,
 	output  [6:0] USER_OUT,
@@ -134,10 +184,14 @@ assign LED_DISK  = {1'b1,~vsd_sel & sd_act};
 assign LED_POWER = 0;
 assign BUTTONS   = 0;
 
-assign VIDEO_ARX = status[1] ? 8'd16 : 8'd4;
-assign VIDEO_ARY = status[1] ? 8'd9  : 8'd3; 
+assign VGA_SCALER = 0;
+assign HDMI_FREEZE = 0;
 
-wire [1:0] scale = status[3:2];
+wire [1:0] ar = status[12:11];
+
+assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
+
 
 `include "build_id.v" 
 parameter CONF_STR = {
@@ -145,8 +199,8 @@ parameter CONF_STR = {
 	"-;",
 	"S,VHD;",
 	"-;",
-	"O1,Aspect ratio,4:3,16:9;",
-	"O23,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;",
+	"OBC,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+	"O13,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
 	"-;",
 	"O45,Audio,Atom,SID,TAPE,off;",
 	"O67,Keyboard,UK,US,orig,game;",
@@ -160,22 +214,47 @@ parameter CONF_STR = {
 };
 
 /////////////////  CLOCKS  ////////////////////////
-
-wire clk_sys;
+wire clk_main = clk_sys;
+wire clk_sys = clk_32;
+//wire clk_100;
 wire clk_16;
 wire clk_32;
-wire clk_25;
+//wire clk_25;
+wire clk_42;
 wire pll_locked;
 
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_sys),
-	.outclk_1(clk_16),
-	.outclk_2(clk_25),
-	.outclk_3(clk_32)
+	.outclk_0(clk_42),
+	.outclk_1(clk_32),
+	.outclk_2(clk_16)
+
 );
+
+reg clk_14M318_ena ;
+reg [1:0] count;
+
+
+always @(posedge clk_42)
+begin
+	if (reset)
+		count<=0;
+	else
+	begin
+		clk_14M318_ena <= 0;
+		if (count == 'd2)
+		begin
+		  clk_14M318_ena <= 1;
+        count <= 0;
+		end
+		else
+		begin
+			count<=count+1;
+		end
+	end
+end
 
 
 
@@ -197,35 +276,35 @@ wire [24:0] ioctl_addr;
 wire [7:0]  ioctl_dout;
 wire        forced_scandoubler;
 wire [21:0] gamma_bus;
+wire        direct_video;
 
-wire [31:0] sd_lba;
+wire [31:0] sd_lba[1];
 wire        sd_rd;
 wire        sd_wr;
 wire        sd_ack;
 wire  [8:0] sd_buff_addr;
 wire [7:0]  sd_buff_dout;
-wire [7:0]  sd_buff_din;
+wire [7:0]  sd_buff_din[1];
 wire        sd_buff_wr;
 wire        img_mounted;
 wire        img_readonly;
 wire [63:0] img_size;
-wire        sd_ack_conf;
 
 wire [64:0] RTC;
 
 wire ps2_clk,ps2_data;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
+hps_io #(.CONF_STR(CONF_STR)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
 
-	.conf_str(CONF_STR),
 
 	.buttons(buttons),
 	.status(status),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
+   .direct_video(direct_video),
 	
 	.RTC(RTC),
 
@@ -240,13 +319,13 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
 	
-	.uart_mode(16'b000_11111_000_11111),
+	//.uart_mode(16'b000_11111_000_11111),
 
 	.sd_lba(sd_lba),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),
-	.sd_ack_conf(sd_ack_conf),
+
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din),
@@ -257,8 +336,8 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.joystick_0(joy1),
 	.joystick_1(joy2),
-	.joystick_analog_0({joy1_y,joy1_x}),
-	.joystick_analog_1({joy2_y,joy2_x})
+	.joystick_l_analog_0({joy1_y,joy1_x}),
+	.joystick_l_analog_1({joy2_y,joy2_x})
 );
 
 /////////////////  RESET  /////////////////////////
@@ -327,7 +406,7 @@ wire  [7:0] mem_din,mem_dout;
 
 spram #(8, 18, 196608, "roms/ATOM192k.mif") rom
 (
-	.clock(clk_sys),
+	.clock(clk_main),
 	.address(mem_addr),
 	.data(mem_din),
 	.wren(mem_we),
@@ -340,14 +419,19 @@ spram #(8, 18, 196608, "roms/ATOM192k.mif") rom
 wire charset = status[8];
 
 wire tape_out;
-
+wire pixel_clock;
 AtomFpga_Core AcornAtom
 (
 			// clocks
-	.clk_vga(clk_25),
-	.clk_main(clk_32),
+			
+	.clk_vid(clk_42),
+   .clk_vid_en(clk_14M318_ena),
+	.clk_main(clk_main),
 	.clk_dac(clk_sys),
-	.clk_avr(clk_16),
+	//.clk_avr(clk_16),
+	.clk_avr(clk_main),
+	
+	.pixel_clock(pixel_clock),
 	
         // Keyboard
 	.ps2_key(ps2_key),
@@ -435,42 +519,41 @@ assign AUDIO_R = status[5:4] == 2'b00 ? {{16{a_audio}}} : status[5:4] == 2'b01 ?
 assign AUDIO_MIX = 0;
 assign AUDIO_S = 1'b0;
 
-wire hs, vs, hblank, vblank, ce_pix, clk_sel;
+wire hs, vs, hblank, vblank,  clk_sel;
 wire [1:0] r,g,b;
 
-assign CLK_VIDEO = clk_25;
-video_mixer #(640, 0) mixer
-(
-	.clk_vid(CLK_VIDEO),
-	
-	.ce_pix(1'b1),
-	.ce_pix_out(CE_PIXEL),
+assign CLK_VIDEO = clk_42;// clk_25;
+wire freeze_sync;
 
-	.hq2x(scale == 1),
-	.scanlines(0),
-	.scandoubler(scale),
+
+
+video_mixer #(.GAMMA(1)) video_mixer
+(
+   .*,
+
+   .CLK_VIDEO(CLK_VIDEO),
+   .ce_pix(pixel_clock),
+
+	.hq2x(scale==1),
+
 
 	.R({r[1],r[1],r[1],r[0],r[0],r[0],r}),
 	.G({g[1],g[1],g[1],g[0],g[0],g[0],g}),
 	.B({b[1],b[1],b[1],b[0],b[0],b[0],b}),
 
-	.mono(0),
-
-	.HSync(~hs),
-	.VSync(~vs),
-	.HBlank(hblank),
-	.VBlank(vblank),
-
-	.VGA_R(VGA_R),
-	.VGA_G(VGA_G),
-	.VGA_B(VGA_B),
-	.VGA_VS(VGA_VS),
-	.VGA_HS(VGA_HS),
-	.VGA_DE(VGA_DE)
+   .HSync(~hs),
+   .VSync(~vs),
+   .HBlank(hblank),
+   .VBlank(vblank)
 );
 
+
+
 assign VGA_F1 = 0;
-assign VGA_SL = scale ? scale - 1'd1 : 2'd0;
+wire [2:0] scale = status[3:1];
+wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
+wire       scandoubler = (scale || forced_scandoubler);
+assign VGA_SL = sl[1:0];
 
 //////////////////   SD   ///////////////////
 
@@ -486,6 +569,9 @@ wire vsdmiso;
 sd_card #(0) sd_card
 (
 	.*,
+
+	.sd_lba(sd_lba[0]),
+	.sd_buff_din(sd_buff_din[0]),
 
 	.clk_spi(clk_sys),
 	.sdhc(1),

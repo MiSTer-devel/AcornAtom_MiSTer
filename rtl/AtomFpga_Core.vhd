@@ -22,10 +22,12 @@ use ieee.numeric_std.all;
 entity AtomFpga_Core is
     port (
         -- Clocking
-        clk_vga          : in    std_logic; -- nominally 25.175MHz VGA clock
+        clk_vid          : in    std_logic; -- nominally 25.175MHz VGA clock
+        clk_vid_en       : in    std_logic; -- nominally 25.175MHz VGA clock
         clk_main         : in    std_logic; -- clock for the main system
         clk_dac          : in    std_logic; -- fast clock for the 1-bit DAC
 		  clk_avr          : in    std_logic; -- clock for the AtoMMC AVR
+        pixel_clock : out std_logic;
 		  
         -- Keyboard/mouse
 		  ps2_key			 : in 	std_logic_vector (10 downto 0);
@@ -257,7 +259,7 @@ architecture BEHAVIORAL of AtomFpga_Core is
  
     signal clk_sid_1MHz : std_logic;
 	 
-	 
+	 signal reset_vid : std_logic;
 
 --------------------------------------------------------------------
 --                   here it begin :)
@@ -329,7 +331,13 @@ begin
     not_cpu_R_W_n <= not cpu_R_W_n;
 	 
     -- reset logic
-	 RSTn			<= key_break and ext_reset_n;
+	 process (clk_main) 
+	 begin
+	 if rising_edge(clk_main) then
+		RSTn			<= key_break and ext_reset_n;
+		reset_vid <=not ext_reset_n;
+	end if;
+	end process;
 	 reset		<= not RSTn;
 --    process(clk_main)
 --    begin
@@ -346,24 +354,16 @@ begin
 
     video_ram_we  <= not_cpu_R_W_n and vid_cs;
 
-
 	 
-	 process (clk_vga)
-	 begin
-	 if rising_edge(clk_vga) then
-		clock_vga_en <= not clock_vga_en;
-	 end if;
-	 end process;
-
     -- Motorola MC6847
     -- Original version: https://svn.pacedev.net/repos/pace/sw/src/component/video/mc6847.vhd
     -- Updated by AlanD for his Atom FPGA: http://stardot.org.uk/forums/viewtopic.php?f=3&t=6313
     -- A further few bugs fixed by myself
     Inst_mc6847 : entity work.mc6847
         port map (
-            clk            => clk_vga,
-            clk_ena        => clock_vga_en,
-            reset          => not ext_reset_n,
+            clk            => clk_vid,
+            clk_ena        => clk_vid_en,
+            reset          => reset_vid,
             da0            => open,
             videoaddr      => vid_addr,
             dd             => vid_data,
@@ -388,7 +388,8 @@ begin
             cvbs           => open,
             black_backgnd  => BLACK_BACKGND,
             char_a         => char_a,
-            char_d_o       => char_d_o
+            char_d_o       => char_d_o,
+				pixel_clock    => pixel_clock
             );
 
        -- 8Kx8 Dual port video RAM
@@ -401,7 +402,7 @@ begin
                 addra => cpu_addr(12 downto 0),
                 dina  => cpu_dout,
                 douta => vid_dout,
-                clkb  => clk_vga,
+                clkb  => clk_vid,
                 web   => '0',
                 addrb => vid_addr,
                 dinb  => (others => '0'),
@@ -412,7 +413,7 @@ begin
         ---- ram for char generator      
         charrom_inst : entity work.CharRom
             port map(
-                CLK  => clk_vga,
+                CLK  => clk_vid,
                 ADDR => char_a,
                 DATA => char_do
             );
@@ -420,7 +421,7 @@ begin
         ---- ram for xtra char generator      
         charromx_inst : entity work.CharRomx
             port map(
-                CLK  => clk_vga,
+                CLK  => clk_vid,
                 ADDR => char_a,
                 DATA => charx_do
             ); 
@@ -488,9 +489,9 @@ begin
 	 vga_blank <= (vga_vblank or vga_hblank);
     -- Making this a synchronous process should improve the timing
     -- and potentially make the pixels more defined
-    process (clk_vga)
+    process (clk_vid)
     begin
-        if rising_edge(clk_vga) then
+        if rising_edge(clk_vid) then
             if vga_blank = '1' then
                 physical_colour <= (others => '0');
             else
