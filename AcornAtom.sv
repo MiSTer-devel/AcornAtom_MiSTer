@@ -230,13 +230,7 @@ pll pll
 	.outclk_0(clk_42),
 	.outclk_1(clk_32),
 	.outclk_2(clk_16)
-/*	
-	.outclk_0(clk_100),
-	.outclk_1(clk_16),
-	.outclk_2(clk_25),
-	.outclk_3(clk_32),
-	.outclk_4(clk_42) // for 15khz video
-*/
+
 );
 
 reg clk_14M318_ena ;
@@ -453,9 +447,6 @@ AtomFpga_Core AcornAtom
 			
 	.clk_vid(clk_42),
    .clk_vid_en(clk_14M318_ena),
-
-			
-	.clk_vga(clk_42),
 	.clk_main(clk_main),
 	.clk_dac(clk_sys),
 	.clk_avr(clk_16),
@@ -554,13 +545,6 @@ wire [1:0] r,g,b;
 assign CLK_VIDEO = clk_42;// clk_25;
 wire freeze_sync;
 
-reg ce_pix;
-always @(posedge CLK_VIDEO) begin
-	reg [1:0] div;
-
-	div <= div + 1'b1;
-	ce_pix <=  !div;
-end
 
 
 video_mixer #(.GAMMA(1)) video_mixer

@@ -24,7 +24,6 @@ entity AtomFpga_Core is
         -- Clocking
         clk_vid          : in    std_logic; -- nominally 25.175MHz VGA clock
         clk_vid_en       : in    std_logic; -- nominally 25.175MHz VGA clock
-        clk_vga          : in    std_logic; -- nominally 25.175MHz VGA clock
         clk_main         : in    std_logic; -- clock for the main system
         clk_dac          : in    std_logic; -- fast clock for the 1-bit DAC
 		  clk_avr          : in    std_logic; -- clock for the AtoMMC AVR
@@ -354,15 +353,6 @@ begin
 
     video_ram_we  <= not_cpu_R_W_n and vid_cs;
 
-
-	 
-	 process (clk_vga)
-	 begin
-	 if rising_edge(clk_vga) then
-		clock_vga_en <= not clock_vga_en;
-	 end if;
-	 end process;
-
     -- Motorola MC6847
     -- Original version: https://svn.pacedev.net/repos/pace/sw/src/component/video/mc6847.vhd
     -- Updated by AlanD for his Atom FPGA: http://stardot.org.uk/forums/viewtopic.php?f=3&t=6313
@@ -410,7 +400,7 @@ begin
                 addra => cpu_addr(12 downto 0),
                 dina  => cpu_dout,
                 douta => vid_dout,
-                clkb  => clk_vga,
+                clkb  => clk_vid,
                 web   => '0',
                 addrb => vid_addr,
                 dinb  => (others => '0'),
@@ -421,7 +411,7 @@ begin
         ---- ram for char generator      
         charrom_inst : entity work.CharRom
             port map(
-                CLK  => clk_vga,
+                CLK  => clk_vid,
                 ADDR => char_a,
                 DATA => char_do
             );
@@ -429,7 +419,7 @@ begin
         ---- ram for xtra char generator      
         charromx_inst : entity work.CharRomx
             port map(
-                CLK  => clk_vga,
+                CLK  => clk_vid,
                 ADDR => char_a,
                 DATA => charx_do
             ); 
@@ -497,9 +487,9 @@ begin
 	 vga_blank <= (vga_vblank or vga_hblank);
     -- Making this a synchronous process should improve the timing
     -- and potentially make the pixels more defined
-    process (clk_vga)
+    process (clk_vid)
     begin
-        if rising_edge(clk_vga) then
+        if rising_edge(clk_vid) then
             if vga_blank = '1' then
                 physical_colour <= (others => '0');
             else
