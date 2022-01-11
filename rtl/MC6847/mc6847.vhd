@@ -435,17 +435,14 @@ begin
             cvbs_hblank_r        := cvbs_hblank;
 
             if an_g_s = '0' then
-               -- lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
                 lookup(4 downto 0) <= active_h_count(7 downto 3);
                 videoaddr          <= videoaddr_base(12 downto 5) & lookup(4 downto 0);
             else
                 case gm is              --lookupaddr
                     when "000" | "001" | "011" | "101" =>
-                        --lookup(3 downto 0) <= active_h_count(7 downto 4) + 1;
                         lookup(3 downto 0) <= active_h_count(7 downto 4);
                         videoaddr          <= videoaddr_base(12 downto 4) & lookup(3 downto 0);
                     when "010" | "100" | "110" | "111" =>
-                        --lookup(4 downto 0) <= active_h_count(7 downto 3) + 1;
                         lookup(4 downto 0) <= active_h_count(7 downto 3);
                         videoaddr          <= videoaddr_base(12 downto 5) & lookup(4 downto 0);
                     when others =>
