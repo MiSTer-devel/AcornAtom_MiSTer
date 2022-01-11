@@ -256,27 +256,6 @@ begin
 	end
 end
 
-reg clk_7_ena ;
-reg [2:0] count2;
-
-always @(posedge clk_42)
-begin
-	if (reset)
-		count2<=0;
-	else
-	begin
-		clk_7_ena <= 0;
-		if (count2 == 'd6)
-		begin
-		  clk_7_ena <= 1;
-        count2 <= 0;
-		end
-		else
-		begin
-			count2<=count2+1;
-		end
-	end
-end
 
 
 /////////////////  HPS  ///////////////////////////
@@ -449,7 +428,8 @@ AtomFpga_Core AcornAtom
    .clk_vid_en(clk_14M318_ena),
 	.clk_main(clk_main),
 	.clk_dac(clk_sys),
-	.clk_avr(clk_16),
+	//.clk_avr(clk_16),
+	.clk_avr(clk_main),
 	
 	.pixel_clock(pixel_clock),
 	

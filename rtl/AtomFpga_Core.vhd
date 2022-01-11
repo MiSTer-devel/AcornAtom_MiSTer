@@ -259,7 +259,7 @@ architecture BEHAVIORAL of AtomFpga_Core is
  
     signal clk_sid_1MHz : std_logic;
 	 
-	 
+	 signal reset_vid : std_logic;
 
 --------------------------------------------------------------------
 --                   here it begin :)
@@ -335,6 +335,7 @@ begin
 	 begin
 	 if rising_edge(clk_main) then
 		RSTn			<= key_break and ext_reset_n;
+		reset_vid <=not ext_reset_n;
 	end if;
 	end process;
 	 reset		<= not RSTn;
@@ -353,6 +354,7 @@ begin
 
     video_ram_we  <= not_cpu_R_W_n and vid_cs;
 
+	 
     -- Motorola MC6847
     -- Original version: https://svn.pacedev.net/repos/pace/sw/src/component/video/mc6847.vhd
     -- Updated by AlanD for his Atom FPGA: http://stardot.org.uk/forums/viewtopic.php?f=3&t=6313
@@ -361,7 +363,7 @@ begin
         port map (
             clk            => clk_vid,
             clk_ena        => clk_vid_en,
-            reset          => not ext_reset_n,
+            reset          => reset_vid,
             da0            => open,
             videoaddr      => vid_addr,
             dd             => vid_data,
