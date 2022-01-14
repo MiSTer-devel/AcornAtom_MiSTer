@@ -264,7 +264,6 @@ wire [31:0] status;
 wire  [1:0] buttons;
 
 wire [15:0] joy1, joy2;
-wire  [7:0] joy1_x,joy1_y,joy2_x,joy2_y;
 
 wire [10:0] ps2_key;
 wire [24:0] ps2_mouse;
@@ -290,7 +289,6 @@ wire        img_mounted;
 wire        img_readonly;
 wire [63:0] img_size;
 
-wire [64:0] RTC;
 
 wire ps2_clk,ps2_data;
 
@@ -304,9 +302,8 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.status(status),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
-   .direct_video(direct_video),
+	.direct_video(direct_video),
 	
-	.RTC(RTC),
 
 	.ps2_key(ps2_key),
 	.ps2_mouse(ps2_mouse),
@@ -336,8 +333,6 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 
 	.joystick_0(joy1),
 	.joystick_1(joy2),
-	.joystick_l_analog_0({joy1_y,joy1_x}),
-	.joystick_l_analog_1({joy2_y,joy2_x})
 );
 
 /////////////////  RESET  /////////////////////////
@@ -425,11 +420,11 @@ AtomFpga_Core AcornAtom
 			// clocks
 			
 	.clk_vid(clk_42),
-   .clk_vid_en(clk_14M318_ena),
+	.clk_vid_en(clk_14M318_ena),
 	.clk_main(clk_main),
-	.clk_dac(clk_sys),
-	//.clk_avr(clk_16),
-	.clk_avr(clk_main),
+	.clk_dac(clk_sys),  // -2.202 setup slack
+	//.clk_avr(clk_16), // -4.98 setup slack -- this is to fix SD Card problem
+	.clk_avr(clk_main), // this helps timing
 	
 	.pixel_clock(pixel_clock),
 	
@@ -450,10 +445,10 @@ AtomFpga_Core AcornAtom
 
     // VGA
 	.red(r),
-   .green(g),
+        .green(g),
 	.blue(b),
-   .hsync(hs),
-   .vsync(vs),
+	.hsync(hs),
+	.vsync(vs),
 	.hblank(hblank),
 	.vblank(vblank),
 	
@@ -479,23 +474,23 @@ AtomFpga_Core AcornAtom
 
 
         // Audio
-   .atom_audio(a_audio),	//          : out   std_logic;
+	.atom_audio(a_audio),	//          : out   std_logic;
 	.sid_audio(),
 	.sid_audio_d(sid_audio),
 	
         // SD Card
-   .SDCLK(sdclk),	//        : out   std_logic;
-   .SDSS(sdss),	//         : out   std_logic;
-   .SDMOSI(sdmosi),	//       : out   std_logic;
-   .SDMISO(sdmiso),	//       : in    std_logic;
+	.SDCLK(sdclk),	//        : out   std_logic;
+	.SDSS(sdss),	//         : out   std_logic;
+	.SDMOSI(sdmosi),	//       : out   std_logic;
+	.SDMISO(sdmiso),	//       : in    std_logic;
 
         // Serial
 //   .uart_TxD(),	//      : out   std_logic;
 //   .uart_RxD(1'B0),	//      : in    std_logic;
 	
         // Cassette
-   .cas_in(tape_adc),	//         : in    std_logic;
-   .cas_out(tape_out),	//        : out   std_logic;
+	.cas_in(tape_adc),	//         : in    std_logic;
+	.cas_out(tape_out),	//        : out   std_logic;
 	
 		// Misc
 	.LED1(LED_USER),
@@ -550,7 +545,8 @@ video_mixer #(.GAMMA(1)) video_mixer
 
 
 assign VGA_F1 = 0;
-wire [2:0] scale = status[3:1];
+reg [2:0] scale;
+always @(posedge clk_42) scale = status[3:1];
 wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
 wire       scandoubler = (scale || forced_scandoubler);
 assign VGA_SL = sl[1:0];

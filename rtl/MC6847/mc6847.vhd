@@ -401,9 +401,11 @@ begin
                     active_h_count := (others => '0');
                 elsif h_count = H_LEFT_BORDER then
                     cvbs_hblank    <= '0';
+                elsif h_count = H_VIDEO -1 then
+                    active_h_start<='1'; -- ajs - try to move over by one
                 elsif h_count = H_VIDEO then
                     cvbs_hblank    <= '1';
-                    active_h_start <= '1';
+                --    active_h_start <= '1';
                     active_h_count := active_h_count + 1;
                 elsif h_count = H_RIGHT_BORDER then
                     null;

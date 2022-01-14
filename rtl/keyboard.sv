@@ -33,15 +33,18 @@ reg  			key_strobe = 1'b0;
 reg				key_press;
 reg				left_alt;
 
+//https://github.com/hoglet67/AtomFpga/blob/e72d68a968c0833ed34a4582b6c9f1b58265f5fc/src/ps2kybrd/keyboard.vhd
    always @(*)
 
      begin
         keydata <= keys[row];
+	        //-- 0 U R D L F
+
 		if (row == 4'b0000)
-			keyout <= keydata & {1'b1,joy1[0],joy1[3],joy1[1],joy1[2],joy1[5]};
+			keyout <= keydata & {1'b1,joy1[3],joy1[0],joy1[2],joy1[1],joy1[4]};
 		else
 		if (row == 4'b0001)
-			keyout <= keydata & {1'b1,joy2[0],joy2[3],joy2[1],joy2[2],joy2[5]};
+			keyout <= keydata & {1'b1,joy2[3],joy2[0],joy2[2],joy2[1],joy2[4]};
 		else
 			keyout <= keydata;			
      end

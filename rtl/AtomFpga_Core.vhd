@@ -335,9 +335,17 @@ begin
 	 begin
 	 if rising_edge(clk_main) then
 		RSTn			<= key_break and ext_reset_n;
+	end if;
+	end process;
+	
+	
+	process (clk_vid)
+	begin
+	if rising_edge(clk_vid) then
 		reset_vid <=not ext_reset_n;
 	end if;
 	end process;
+	
 	 reset		<= not RSTn;
 --    process(clk_main)
 --    begin
@@ -550,9 +558,21 @@ begin
     -- Port A
     --   bits 7..4 (output) determine the 6847 graphics mode
     --   bits 3..0 (output) drive the keyboard matrix
+	 
+    --vdg_gm        <= i8255_pa_data(7 downto 5) when RSTn='1' else "000";
+    --vdg_an_g      <= i8255_pa_data(4)          when RSTn='1' else '0';
+    --vdg_css       <= i8255_pc_data(3)          when RSTn='1' else '0';
 
-    vdg_gm        <= i8255_pa_data(7 downto 5) when RSTn='1' else "000";
-    vdg_an_g      <= i8255_pa_data(4)          when RSTn='1' else '0';
+	 
+    process (clk_vid)
+    begin
+        if rising_edge(clk_vid) then
+
+    if (RSTn='1') then vdg_gm        <= i8255_pa_data(7 downto 5); else vdg_gm<= "000"; end if;
+    if (RSTn='1') then vdg_an_g      <= i8255_pa_data(4);          else  vdg_an_g<='0'; end if;
+    if (RSTn='1') then vdg_css       <= i8255_pc_data(3) ;         else vdg_css<='0'; end if;
+end if;
+end process;
 
     -- Port B
     --   bits 7..0 (input) read the keyboard matrix
@@ -568,7 +588,7 @@ begin
     --    bit 2 (output) Audio
     --    bit 1 (output) Enable 2.4KHz tone to casette output
     --    bit 0 (output) Cassette output
-    vdg_css       <= i8255_pc_data(3)          when RSTn='1' else '0';
+   -- vdg_css       <= i8255_pc_data(3)          when RSTn='1' else '0';
     atom_audio    <= i8255_pc_data(2);
 
     i8255_pc_idata <= vdg_fs_n & key_repeat & cas_in & cas_tone & i8255_pc_data (3 downto 0);
