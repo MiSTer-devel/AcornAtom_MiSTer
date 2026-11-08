@@ -76,7 +76,13 @@ architecture SYN of mc6847 is
   constant H_LEFT_BORDER      : integer := H_BACK_PORCH + 61+1+3 ; -- adjust for hblank de-assert @sys_count=6
   constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16 +8;
   constant H_VIDEO            : integer := H_LEFT_BORDER + 256;
-  constant H_RIGHT_BORDER     : integer := H_VIDEO + 61+1-3;      -- "
+  -- The real MC6847 line is 228 chroma clocks (MAME mc6847.cpp: the datasheet
+  -- says 227.5, measurement says 228), i.e. 456 of the 7.159 MHz half-dots that
+  -- h_count counts (0..H_TOTAL_PER_LINE inclusive), 63.7 us, 15.70 kHz, 59.92 Hz
+  -- with 262 lines. The MiSTer sync/border tweaks above had grown the line to
+  -- 466 (15.36 kHz, 58.6 Hz); the surplus comes out of the right border, which
+  -- is blanked on this core anyway, so the active window keeps its place.
+  constant H_RIGHT_BORDER     : integer := H_VIDEO + 61+1-3-10;   -- 455 -> 456 clocks per line
   constant H_TOTAL_PER_LINE   : integer := H_RIGHT_BORDER;
 
 --    constant H_FRONT_PORCH    : integer := 8;

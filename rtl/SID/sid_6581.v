@@ -33,7 +33,7 @@
 
 module sid6581
   (
-   input         clk_1MHz,  // main SID clock signal
+   input         ce_1MHz,   // one-cycle enable on clk32 at the SID's 1 MHz rate (its clock)
    input         clk32,     // main clock signal
    input         clk_DAC,   // DAC clock signal, must be as high as possible for the best results
    input         reset,     // high active signal (reset when reset = '1')
@@ -111,11 +111,9 @@ module sid6581
 
    wire signed [18:0] filtered_audio;
    reg                tick_q1;
-   reg                tick_q2;
    wire               input_valid;
    wire [17:0]        unsigned_audio;
    wire [18:0]        unsigned_filt;
-   reg                ff1;
 
 //-----------------------------------------------------------------------------
 
@@ -129,7 +127,7 @@ module sid6581
 
    pwm_sdadc paddle_x
      (
-      .clk              (clk_1MHz),
+      .clk              (clk32),
       .reset            (reset),
       .ADC_out          (Misc_PotX),
       .ADC_in           (pot_x)
@@ -137,7 +135,7 @@ module sid6581
 
    pwm_sdadc paddle_y
       (
-       .clk             (clk_1MHz),
+       .clk             (clk32),
        .reset           (reset),
        .ADC_out         (Misc_PotY),
        .ADC_in          (pot_y)
@@ -145,7 +143,8 @@ module sid6581
 
    sid_voice sid_voice_1
      (
-     .clk_1MHz          (clk_1MHz),
+     .clk          (clk32),
+     .ce_1MHz          (ce_1MHz),
      .reset             (reset),
      .Freq_lo           (Voice_1_Freq_lo),
      .Freq_hi           (Voice_1_Freq_hi),
@@ -163,7 +162,8 @@ module sid6581
 
    sid_voice sid_voice_2
      (
-     .clk_1MHz          (clk_1MHz),
+     .clk          (clk32),
+     .ce_1MHz          (ce_1MHz),
      .reset             (reset),
      .Freq_lo           (Voice_2_Freq_lo),
      .Freq_hi           (Voice_2_Freq_hi),
@@ -181,7 +181,8 @@ module sid6581
 
    sid_voice sid_voice_3
      (
-     .clk_1MHz          (clk_1MHz),
+     .clk          (clk32),
+     .ce_1MHz          (ce_1MHz),
      .reset             (reset),
      .Freq_lo           (Voice_3_Freq_lo),
      .Freq_hi           (Voice_3_Freq_hi),
@@ -202,21 +203,14 @@ module sid6581
 
 // SID filters
 
-   always @(posedge clk_1MHz, posedge reset)
-     begin
-        if (reset)
-          ff1 <= 1'b0;
-        else
-          ff1 <= !ff1;
-     end
-
+   // The filter resamples the voices once per SID clock: the enable itself,
+   // registered once so it lines up with the voice outputs.
    always @(posedge clk32)
      begin
-        tick_q1 <= ff1;
-        tick_q2 <= tick_q1;
+        tick_q1 <= ce_1MHz;
      end
 
-   assign input_valid = (tick_q1 != tick_q2);
+   assign input_valid = tick_q1;
 
    assign voice1_signed = {1'b0, voice_1} - 12'd2048;
    assign voice2_signed = {1'b0, voice_2} - 12'd2048;

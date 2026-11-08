@@ -34,6 +34,14 @@ entity AtomFpga_Core is
 		  layout				 : in    std_logic_vector(1 downto 0);
 		  BLACK_BACKGND	 : in    std_logic;
 		  computer 			 : in    std_logic;
+        turbo_default    : in    std_logic_vector(1 downto 0) := "00"; -- CPU speed at reset (OSD)
+        osd_break        : in    std_logic := '0';  -- BREAK from the OSD (level; hold it a few ms)
+        tape_turbo       : in    std_logic := '0';  -- the tape deck plays fast: CPU at 4 MHz at least
+        osd_shift        : in    std_logic := '0';  -- OSD Shift-BREAK: SHIFT held down (8255 PB7)
+        osd_ctrl         : in    std_logic := '0';  -- OSD Ctrl-BREAK: CTRL held down (8255 PB6)
+        cas_tick         : out   std_logic;         -- one clk_main per 2.4 kHz half cycle (scales with the CPU speed)
+        cpu_addr_o       : out   std_logic_vector(15 downto 0); -- for the tape deck: where the CPU is
+        cpu_clken_o      : out   std_logic;
 
         -- Resets
 --        powerup_reset_n  : in    std_logic := '1'; -- power up reset only (optional)
@@ -243,6 +251,11 @@ architecture BEHAVIORAL of AtomFpga_Core is
 	 signal BFFF_Enable : std_logic;    
     signal RegBFFF     : std_logic_vector (7 downto 0);
 	 signal spi_dout     : std_logic_vector (7 downto 0);
+    -- Unused outputs that VHDL requires to be associated (partial-open associations crash ghdl and
+    -- draw Quartus critical warning 10920). Quartus removes them as dead logic.
+    signal cpu_addr_hi  : std_logic_vector(7 downto 0);
+    signal avr_portb_nc : std_logic_vector(7 downto 0);
+    signal avr_portd_nc : std_logic_vector(7 downto 0);
     signal pl8_data     : std_logic_vector (7 downto 0);
     signal nARD         : std_logic;
     signal nAWR         : std_logic;
@@ -257,7 +270,8 @@ architecture BEHAVIORAL of AtomFpga_Core is
 	 
     -- Internal 1MHz clocks for SID
  
-    signal clk_sid_1MHz : std_logic;
+    signal sid_ce_1MHz  : std_logic;
+    signal sid_div      : unsigned(4 downto 0) := (others => '0');
 	 
 	 signal reset_vid : std_logic;
 
@@ -272,6 +286,7 @@ component keyboard
 				clk_en		: in  std_logic;
             reset    	: in  std_logic;
 				layout		: in  std_logic_vector(1 downto 0);
+				turbo_default : in std_logic_vector(1 downto 0);
 				ps2_key		: in  std_logic_vector(10 downto 0);
 				row			: in  std_logic_vector(3  downto 0);
 				joy1			: in  std_logic_vector(15 downto 0);
@@ -288,7 +303,7 @@ component keyboard
 	 component sid6581
 	 
 		port(
-			clk_1MHz 	: in  std_logic;
+			ce_1MHz 	: in  std_logic;
          clk32 		: in  std_logic;
          clk_DAC 		: in  std_logic;
          reset 		: in  std_logic;
@@ -323,18 +338,20 @@ begin
         NMI_n          => '1',
         R_W_n          => cpu_R_W_n,
         Sync           => open,
-        A(23 downto 16) => open,
+        A(23 downto 16) => cpu_addr_hi,
         A(15 downto 0) => cpu_addr(15 downto 0),
         DI(7 downto 0) => cpu_din(7 downto 0),
         DO(7 downto 0) => cpu_dout(7 downto 0));
 
     not_cpu_R_W_n <= not cpu_R_W_n;
+    cpu_addr_o    <= cpu_addr;
+    cpu_clken_o   <= cpu_clken;
 	 
     -- reset logic
 	 process (clk_main) 
 	 begin
 	 if rising_edge(clk_main) then
-		RSTn			<= key_break and ext_reset_n;
+		RSTn			<= key_break and ext_reset_n and not osd_break;
 	end if;
 	end process;
 	
@@ -440,7 +457,7 @@ begin
 
         Inst_sid6581: sid6581
             port map (
-                clk_1MHz => clk_sid_1MHz,
+                ce_1MHz => sid_ce_1MHz,
                 clk32 => clk_main,
                 clk_DAC => clk_dac,
                 reset => reset,
@@ -455,8 +472,21 @@ begin
                 audio_data => sid_audio_d 
             );
 
-        -- Clock_Sid_1MHz is derived by dividing down the 32MHz clock      
-        clk_sid_1MHz <= clk_counter(4);
+        -- SID clock: a free-running 1 MHz enable from clk_main (31.5 MHz / 32 =
+        -- 0.984 MHz, the same rate as the 1x CPU). It used to be clk_counter(4),
+        -- which only toggles at 1x, so the SID stopped dead in turbo, and it was
+        -- used as a clock rather than an enable.
+        process (clk_main)
+        begin
+            if rising_edge(clk_main) then
+                sid_div <= sid_div + 1;
+                if sid_div = 31 then
+                    sid_ce_1MHz <= '1';
+                else
+                    sid_ce_1MHz <= '0';
+                end if;
+            end if;
+        end process;
 		  
     --------------------------------------------------------
    -- Colour palette control
@@ -576,7 +606,7 @@ end process;
 
     -- Port B
     --   bits 7..0 (input) read the keyboard matrix
-    i8255_pb_idata <= (key_shift & key_ctrl & ps2dataout);-- and (kbd_pb);
+    i8255_pb_idata <= ((key_shift and not osd_shift) & (key_ctrl and not osd_ctrl) & ps2dataout);-- and (kbd_pb);
 
 
     -- Port C
@@ -602,11 +632,12 @@ end process;
 ---------------------------------------------------------------------
 
 
-    input : keyboard port map(
+    Inst_keyboard : keyboard port map(
         clk      => clk_main,
 		  clk_en		=> pia_clken,
         reset     => not ext_reset_n,
         layout    => layout,
+        turbo_default => turbo_default,
         PS2_key   => ps2_key,
         keyout     => ps2dataout,
         row        => i8255_pa_data(3 downto 0),
@@ -682,22 +713,22 @@ end process;
 
             portbout(0)       => nARD,
             portbout(1)       => nAWR,
-            portbout(2)       => open,
+            portbout(2)       => avr_portb_nc(2),
             portbout(3)       => AVRA0,
-            portbout(4)       => open,
-            portbout(5)       => open,
+            portbout(4)       => avr_portb_nc(4),
+            portbout(5)       => avr_portb_nc(5),
             portbout(6)       => LED1n,
             portbout(7)       => LED2n,
 
             portdin           => (others => '0'),
-            portdout(0)       => open,
-            portdout(1)       => open,
-            portdout(2)       => open,
-            portdout(3)       => open,
+            portdout(0)       => avr_portd_nc(0),
+            portdout(1)       => avr_portd_nc(1),
+            portdout(2)       => avr_portd_nc(2),
+            portdout(3)       => avr_portd_nc(3),
             portdout(4)       => SDSS,
-            portdout(5)       => open,
-            portdout(6)       => open,
-            portdout(7)       => open,
+            portdout(5)       => avr_portd_nc(5),
+            portdout(6)       => avr_portd_nc(6),
+            portdout(7)       => avr_portd_nc(7),
 
             -- FUDLR
             portein           => ioport,
@@ -894,7 +925,12 @@ end process;
             
 
             if clk_counter = limit then
-                turbo_synced <= key_turbo; -- only change the timing at the end of the cycle
+                -- only change the timing at the end of the cycle; a playing tape asks for 4 MHz
+                if tape_turbo = '1' and key_turbo(1) = '0' then
+                    turbo_synced <= "10";
+                else
+                    turbo_synced <= key_turbo;
+                end if;
                 clk_counter <= (others => '0');
             else
                 clk_counter <= clk_counter + 1;
@@ -942,12 +978,22 @@ end process;
                 sample_data <= '0';
             end if;
 				
-				-- Cassette divider
-				-- 32 MHz / 2 / 13 / 16 / 16 = 4807 Hz
+				-- Cassette divider: the 2.4 kHz reference tone (PC4) and the tape tick
 				
+				-- One tone half cycle per 208 CPU cycles, as on the real Atom (4 MHz / 13 / 64
+				-- against a 1 MHz CPU): 6656 clk_main at 1x, divided by the turbo factor so
+				-- SAVE's tone and the tape player (cas_tick) keep their place against the
+				-- CPU's timing loops at every speed.
+				cas_tick <= '0';
 				if cas_divider = 0 then
-                cas_divider <= x"19FF";
+                case turbo_synced is
+                    when "11"   => cas_divider <= x"033F";  --  832 (8x)
+                    when "10"   => cas_divider <= x"067F";  -- 1664 (4x)
+                    when "01"   => cas_divider <= x"0CFF";  -- 3328 (2x)
+                    when others => cas_divider <= x"19FF";  -- 6656 (1x)
+                end case;
                 cas_tone    <= not cas_tone;
+                cas_tick    <= '1';
             else
                 cas_divider <= cas_divider - 1;
             end if;

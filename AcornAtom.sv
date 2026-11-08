@@ -20,159 +20,7 @@
 
 module emu
 (
-	//Master input clock
-	input         CLK_50M,
-
-	//Async reset from top-level module.
-	//Can be used as initial reset.
-	input         RESET,
-
-	//Must be passed to hps_io module
-	inout  [48:0] HPS_BUS,
-
-	//Base video clock. Usually equals to CLK_SYS.
-	output        CLK_VIDEO,
-
-	//Multiple resolutions are supported using different CE_PIXEL rates.
-	//Must be based on CLK_VIDEO
-	output        CE_PIXEL,
-
-	//Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
-	//if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.
-	output [12:0] VIDEO_ARX,
-	output [12:0] VIDEO_ARY,
-
-	output  [7:0] VGA_R,
-	output  [7:0] VGA_G,
-	output  [7:0] VGA_B,
-	output        VGA_HS,
-	output        VGA_VS,
-	output        VGA_DE,    // = ~(VBlank | HBlank)
-	output        VGA_F1,
-	output [1:0]  VGA_SL,
-	output        VGA_SCALER, // Force VGA scaler
-	output        VGA_DISABLE, // analog out is off
-
-	input  [11:0] HDMI_WIDTH,
-	input  [11:0] HDMI_HEIGHT,
-	output        HDMI_FREEZE,
-	output        HDMI_BLACKOUT,
-	output        HDMI_BOB_DEINT,
-
-`ifdef MISTER_FB
-	// Use framebuffer in DDRAM
-	// FB_FORMAT:
-	//    [2:0] : 011=8bpp(palette) 100=16bpp 101=24bpp 110=32bpp
-	//    [3]   : 0=16bits 565 1=16bits 1555
-	//    [4]   : 0=RGB  1=BGR (for 16/24/32 modes)
-	//
-	// FB_STRIDE either 0 (rounded to 256 bytes) or multiple of pixel size (in bytes)
-	output        FB_EN,
-	output  [4:0] FB_FORMAT,
-	output [11:0] FB_WIDTH,
-	output [11:0] FB_HEIGHT,
-	output [31:0] FB_BASE,
-	output [13:0] FB_STRIDE,
-	input         FB_VBL,
-	input         FB_LL,
-	output        FB_FORCE_BLANK,
-
-`ifdef MISTER_FB_PALETTE
-	// Palette control for 8bit modes.
-	// Ignored for other video modes.
-	output        FB_PAL_CLK,
-	output  [7:0] FB_PAL_ADDR,
-	output [23:0] FB_PAL_DOUT,
-	input  [23:0] FB_PAL_DIN,
-	output        FB_PAL_WR,
-`endif
-`endif
-
-	output        LED_USER,  // 1 - ON, 0 - OFF.
-
-	// b[1]: 0 - LED status is system status OR'd with b[0]
-	//       1 - LED status is controled solely by b[0]
-	// hint: supply 2'b00 to let the system control the LED.
-	output  [1:0] LED_POWER,
-	output  [1:0] LED_DISK,
-
-	// I/O board button press simulation (active high)
-	// b[1]: user button
-	// b[0]: osd button
-	output  [1:0] BUTTONS,
-
-	input         CLK_AUDIO, // 24.576 MHz
-	output [15:0] AUDIO_L,
-	output [15:0] AUDIO_R,
-	output        AUDIO_S,   // 1 - signed audio samples, 0 - unsigned
-	output  [1:0] AUDIO_MIX, // 0 - no mix, 1 - 25%, 2 - 50%, 3 - 100% (mono)
-
-	//ADC
-	inout   [3:0] ADC_BUS,
-
-	//SD-SPI
-	output        SD_SCK,
-	output        SD_MOSI,
-	input         SD_MISO,
-	output        SD_CS,
-	input         SD_CD,
-
-	//High latency DDR3 RAM interface
-	//Use for non-critical time purposes
-	output        DDRAM_CLK,
-	input         DDRAM_BUSY,
-	output  [7:0] DDRAM_BURSTCNT,
-	output [28:0] DDRAM_ADDR,
-	input  [63:0] DDRAM_DOUT,
-	input         DDRAM_DOUT_READY,
-	output        DDRAM_RD,
-	output [63:0] DDRAM_DIN,
-	output  [7:0] DDRAM_BE,
-	output        DDRAM_WE,
-
-	//SDRAM interface with lower latency
-	output        SDRAM_CLK,
-	output        SDRAM_CKE,
-	output [12:0] SDRAM_A,
-	output  [1:0] SDRAM_BA,
-	inout  [15:0] SDRAM_DQ,
-	output        SDRAM_DQML,
-	output        SDRAM_DQMH,
-	output        SDRAM_nCS,
-	output        SDRAM_nCAS,
-	output        SDRAM_nRAS,
-	output        SDRAM_nWE,
-
-`ifdef MISTER_DUAL_SDRAM
-	//Secondary SDRAM
-	//Set all output SDRAM_* signals to Z ASAP if SDRAM2_EN is 0
-	input         SDRAM2_EN,
-	output        SDRAM2_CLK,
-	output [12:0] SDRAM2_A,
-	output  [1:0] SDRAM2_BA,
-	inout  [15:0] SDRAM2_DQ,
-	output        SDRAM2_nCS,
-	output        SDRAM2_nCAS,
-	output        SDRAM2_nRAS,
-	output        SDRAM2_nWE,
-`endif
-
-	input         UART_CTS,
-	output        UART_RTS,
-	input         UART_RXD,
-	output        UART_TXD,
-	output        UART_DTR,
-	input         UART_DSR,
-
-	// Open-drain User port.
-	// 0 - D+/RX
-	// 1 - D-/TX
-	// 2..6 - USR2..USR6
-	// Set USER_OUT to 1 to read from USER_IN.
-	input   [6:0] USER_IN,
-	output  [6:0] USER_OUT,
-
-	input         OSD_STATUS
+	`include "sys/emu_ports.vh"
 );
 
 
@@ -194,29 +42,58 @@ assign HDMI_FREEZE = 0;
 assign HDMI_BLACKOUT = 0;
 assign HDMI_BOB_DEINT = 0;
 
-wire [1:0] ar = status[12:11];
+wire [1:0] ar = cfg[12:11];
 
 assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
 assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 
 
 `include "build_id.v" 
+// Laid out per ~/dev2/osd-standard.md: media on the top page, settings on
+// pages P1 Machine / P2 Video / P3 Input / P4 Audio, every setting except
+// Input latched at reset (cfg below), "Changes pending" + "Apply and reset".
+// Status bits 1-12 keep their old meaning; 4/5 changed from an audio source
+// select to Speaker/SID enables (v,1), and Keyboard layout's values were
+// reordered to put PC (US) first (v,2).
 parameter CONF_STR = {
 	"AcornAtom;;",
 	"-;",
-	"S,VHD;",
+	"SC0,VHD,Pri. disk (SD);",
+	"F1,UEF,Tape;",
+	"F0,ROM,Load ROM;",
 	"-;",
-	"OBC,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
-	"O13,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
+	"P1,Machine;",
+	"P2,Video;",
+	"P3,Input;",
+	"P4,Audio;",
 	"-;",
-	"O45,Audio,Atom,SID,TAPE,off;",
-	"O67,Keyboard,UK,US,orig,game;",
-	"O8,character set,original,xtra;",
-	"O9,Background,Black,Dark;",
-	"OA,Mode,Atom,BBC;",
-	"-;",
-	"R0,Reset;",
+	"h0-,Changes pending;",
+	"R[0],Apply and reset;",
+
+	"P1O[10],Model,Atom,Atom (BBC BASIC);",
+	"P1O[14:13],CPU speed,1 MHz,2 MHz,4 MHz,8 MHz;",
+	"P1O[17],Tape speed,4x,Normal;",
+	"P1-;",
+	"P1T[15],BREAK;",
+	"P1T[20],Shift-BREAK (menu);",
+	"P1T[21],Ctrl-BREAK (no MMC);",
+	"P1T[18],Rewind tape;",
+
+	"P2O[12:11],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+	"P2O[3:1],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
+	"P2O[8],Character set,Original,Xtra;",
+	"P2O[9],Background,Black,Dark;",
+	"P2O[19],Tape overlay,On,Off;",
+
+	"P3O[7:6],Keyboard layout,PC (US),PC (UK),Atom (original),Atom (game);",
+
+	"P4O[4],Speaker,On,Off;",
+	"P4O[5],SID,On,Off;",
+	"P4O[16],Tape audio,Off,On;",
+
+	"I,Tape ready (rewound),Tape format not supported,Tape too large;",
 	"JA,Fire;",
+	"v,2;",
 	"V,v",`BUILD_DATE
 };
 
@@ -267,7 +144,25 @@ end
 
 /////////////////  HPS  ///////////////////////////
 
-wire [31:0] status;
+wire [127:0] status;
+
+// Tape deck signals used by hps_io and the core (the deck is under TAPE below)
+wire        cas_tick, cpu_clken;
+wire [15:0] cpu_addr;
+wire        tape_level, tape_loaded, tape_playing, tape_turbo;
+wire        tape_info_req;
+wire  [7:0] tape_info;
+
+// The settings the machine runs with, taken from the OSD at every reset
+// (Apply and reset, the board's reset, a core reload, a ROM load). Input
+// settings (keyboard layout, 7:6), the triggers (BREAK 15, Rewind tape 18)
+// and the tape rows (Tape audio 16, Tape speed 17, Tape overlay 19: they act
+// at once or when the deck next starts, per the tape standard) read status
+// directly and stay out of the pending compare.
+reg  [127:0] cfg = 0;
+always @(posedge clk_sys) if (reset) cfg <= status;
+wire pending = {status[14:13], status[12:8], status[5:1]}
+            != {cfg[14:13],    cfg[12:8],    cfg[5:1]};
 wire  [1:0] buttons;
 
 wire [15:0] joy1, joy2;
@@ -307,6 +202,9 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 
 	.buttons(buttons),
 	.status(status),
+	.status_menumask({15'd0, pending}),
+	.info_req(tape_info_req),
+	.info(tape_info),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 	.direct_video(direct_video),
@@ -344,7 +242,8 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 
 /////////////////  RESET  /////////////////////////
 
-wire reset = RESET | status[0] | buttons[1];
+// A ROM load (index 0) holds the machine in reset; a tape (index 1) does not.
+wire reset = RESET | status[0] | buttons[1] | (ioctl_download && ioctl_index == 8'd0);
 
 ////////////////  MEMORY  /////////////////////////
 
@@ -406,19 +305,41 @@ wire [17:0] mem_addr;
 wire  [7:0] mem_din,mem_dout;
 
 
+// Load ROM (F0, and games/AcornAtom/boot0.rom at start): a whole 192 KB image
+// in the layout of roms/ATOM192k.mif, written over the mif contents while the
+// machine is held in reset (reset includes ioctl_download).
+wire [17:0] ram_addr = ioctl_download ? ioctl_addr[17:0] : mem_addr;
+wire  [7:0] ram_din  = ioctl_download ? ioctl_dout       : mem_din;
+wire        ram_we   = ioctl_download ? (ioctl_wr && ioctl_index == 0 && ioctl_addr < 25'd196608) : mem_we;
+
 spram #(8, 18, 196608, "roms/ATOM192k.mif") rom
 (
 	.clock(clk_main),
-	.address(mem_addr),
-	.data(mem_din),
-	.wren(mem_we),
+	.address(ram_addr),
+	.data(ram_din),
+	.wren(ram_we),
 	.q(mem_dout)
+);
+
+// BREAK, Shift-BREAK, Ctrl-BREAK: OSD buttons T[15], T[20], T[21] and the keys
+// F10, F9, F11 (rtl/break_keys.sv).
+wire osd_break, osd_shift, osd_ctrl;
+break_keys break_keys
+(
+	.clk_sys(clk_sys),
+	.btn_break(status[15]),
+	.btn_shift_break(status[20]),
+	.btn_ctrl_break(status[21]),
+	.ps2_key(ps2_key),
+	.osd_break(osd_break),
+	.osd_shift(osd_shift),
+	.osd_ctrl(osd_ctrl)
 );
 
 
 ///////////////////////////////////////////////////
 
-wire charset = status[8];
+wire charset = cfg[8];
 
 wire tape_out;
 wire pixel_clock;
@@ -437,9 +358,19 @@ AtomFpga_Core AcornAtom
 	
         // Keyboard
 	.ps2_key(ps2_key),
-	.layout(status[7:6]),
-	.BLACK_BACKGND(~status[9]),
-	.computer(status[10]),
+	// OSD order PC (US), PC (UK), Atom (original), Atom (game); rtl/keyboard.sv's
+	// encoding is 0 UK, 1 US, 2 original, 3 game.
+	.layout(status[7:6] == 2'd0 ? 2'd1 : status[7:6] == 2'd1 ? 2'd0 : status[7:6]),
+	.BLACK_BACKGND(~cfg[9]),
+	.computer(cfg[10]),
+	.turbo_default(cfg[14:13]),
+	.osd_break(osd_break),
+	.osd_shift(osd_shift),
+	.osd_ctrl(osd_ctrl),
+	.tape_turbo(tape_turbo),
+	.cas_tick(cas_tick),
+	.cpu_addr_o(cpu_addr),
+	.cpu_clken_o(cpu_clken),
 
         // Mouse
 //   .ps2_mouse_clk(mse_clk),	//  : inout std_logic;
@@ -496,7 +427,7 @@ AtomFpga_Core AcornAtom
 //   .uart_RxD(1'B0),	//      : in    std_logic;
 	
         // Cassette
-	.cas_in(tape_adc),	//         : in    std_logic;
+	.cas_in(tape_loaded ? tape_level : tape_adc),
 	.cas_out(tape_out),	//        : out   std_logic;
 	
 		// Misc
@@ -516,10 +447,24 @@ AtomFpga_Core AcornAtom
 wire [17:0] sid_audio;
 wire a_audio;
 
-assign AUDIO_L = status[5:4] == 2'b00 ? {{16{a_audio}}} : status[5:4] == 2'b01 ? sid_audio[17:2] : status[5:4] == 2'b10 ? {{16{tape_out}}} : 16'b0 ;
-assign AUDIO_R = status[5:4] == 2'b00 ? {{16{a_audio}}} : status[5:4] == 2'b01 ? sid_audio[17:2] : status[5:4] == 2'b10 ? {{16{tape_out}}} : 16'b0 ;
+// Mixed, not selected (rtl/audio_mix.sv): beeper + SID + tape tone, each with
+// its OSD enable, signed 16-bit.
+wire [15:0] audio_mixed;
+audio_mix audio_mix
+(
+	.clk(clk_sys),
+	.beeper(a_audio),
+	.sid(sid_audio),
+	.tape(tape_playing ? tape_level : tape_out),
+	.speaker_en(~cfg[4]),
+	.sid_en(~cfg[5]),
+	.tape_en(status[16]),
+	.audio(audio_mixed)
+);
+assign AUDIO_L = audio_mixed;
+assign AUDIO_R = audio_mixed;
 assign AUDIO_MIX = 0;
-assign AUDIO_S = 1'b0;
+assign AUDIO_S = 1'b1;
 
 wire hs, vs, hblank, vblank,  clk_sel;
 wire [1:0] r,g,b;
@@ -528,6 +473,91 @@ assign CLK_VIDEO = clk_42;// clk_25;
 wire freeze_sync;
 
 
+
+/////////////////  TAPE  ///////////////////////////
+// rtl/atom_tape.sv: a UEF in block RAM played into the cassette input; the deck
+// plays while the CPU runs the kernel's tape-read routine (no motor relay on the
+// Atom) and turbo (4x) follows it. rtl/tape_overlay.sv: status bar and hint.
+wire        tape_at_start, tape_file_end;
+wire [31:0] tape_played, tape_total;
+wire        tape_hdr_ok;
+wire [103:0] tape_hdr_name;
+wire  [3:0] tape_hdr_len;
+wire [15:0] tape_hdr_exec, tape_hdr_load;
+atom_tape #(.CLK_HZ(31_500_000)) atom_tape
+(
+	.clk(clk_sys),
+	.reset(reset),
+	.dl(ioctl_download && ioctl_index == 8'd1),
+	.wr(ioctl_wr),
+	.addr(ioctl_addr),
+	.data(ioctl_dout),
+	.tick(cas_tick),
+	.cpu_addr(cpu_addr),
+	.cpu_ce(cpu_clken),
+	.rewind(status[18]),
+	.fast_sel(~status[17]),
+	.level(tape_level),
+	.loaded(tape_loaded),
+	.playing(tape_playing),
+	.turbo(tape_turbo),
+	.played(tape_played),
+	.total(tape_total),
+	.hdr_ok(tape_hdr_ok),
+	.hdr_name(tape_hdr_name),
+	.hdr_len(tape_hdr_len),
+	.hdr_exec(tape_hdr_exec),
+	.hdr_load(tape_hdr_load),
+	.file_end(tape_file_end),
+	.at_start(tape_at_start),
+	.info_req(tape_info_req),
+	.info(tape_info)
+);
+
+// Is the AtoMMC ROM in the way? It points LODVEC (#020C) into its own ROM at
+// #E000; Ctrl-BREAK leaves the kernel's (#F...). Watched on RAM writes.
+reg [7:0] lodvec_hi = 8'hF9;
+always @(posedge clk_sys) if (mem_we && mem_addr == 18'h0020D) lodvec_hi <= mem_din;
+wire tape_hooked = lodvec_hi[7:4] != 4'hF;
+
+wire [26*16+48:0] tape_stat;
+wire        tape_req, tape_ack;
+tape_status #(.CHARS(26)) tape_status
+(
+	.clk(clk_sys),
+	.loaded(tape_loaded),
+	.playing(tape_playing),
+	.fast(tape_turbo),
+	.played(tape_played),
+	.total(tape_total),
+	.at_start(tape_at_start),
+	.file_end(tape_file_end),
+	.hdr_ok(tape_hdr_ok),
+	.hdr_name(tape_hdr_name),
+	.hdr_len(tape_hdr_len),
+	.hdr_exec(tape_hdr_exec),
+	.hooked(tape_hooked),
+	.bbc(cfg[10]),
+	.ps2_key(ps2_key),
+	.status(tape_stat),
+	.req(tape_req),
+	.ack(tape_ack)
+);
+
+wire [23:0] ov_rgb;
+tape_overlay #(.CHARS(26), .FACTOR(4'd4)) tape_overlay
+(
+	.clk(clk_42),
+	.ce_pix(pixel_clock),
+	.hblank(hblank),
+	.vblank(vblank),
+	.enable(~status[19]),
+	.status(tape_stat),
+	.req(tape_req),
+	.ack(tape_ack),
+	.rgb_in({r[1],r[1],r[1],r[0],r[0],r[0],r, g[1],g[1],g[1],g[0],g[0],g[0],g, b[1],b[1],b[1],b[0],b[0],b[0],b}),
+	.rgb_out(ov_rgb)
+);
 
 video_mixer #(.GAMMA(1)) video_mixer
 (
@@ -539,9 +569,9 @@ video_mixer #(.GAMMA(1)) video_mixer
 	.hq2x(scale==1),
 
 
-	.R({r[1],r[1],r[1],r[0],r[0],r[0],r}),
-	.G({g[1],g[1],g[1],g[0],g[0],g[0],g}),
-	.B({b[1],b[1],b[1],b[0],b[0],b[0],b}),
+	.R(ov_rgb[23:16]),
+	.G(ov_rgb[15:8]),
+	.B(ov_rgb[7:0]),
 
    .HSync(~hs),
    .VSync(~vs),
@@ -553,7 +583,7 @@ video_mixer #(.GAMMA(1)) video_mixer
 
 assign VGA_F1 = 0;
 reg [2:0] scale;
-always @(posedge clk_42) scale = status[3:1];
+always @(posedge clk_42) scale = cfg[3:1];
 wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
 wire       scandoubler = (scale || forced_scandoubler);
 assign VGA_SL = sl[1:0];

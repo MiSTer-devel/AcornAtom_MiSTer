@@ -12,14 +12,26 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
 * System Roms with mmc (to access the SD card)
 * Seven additional Roms and 1 slot of ram to download additional Rom.
 * Two character sets.
-* Tape in/out (not tested)
-* Selectable sound, Atom,SID,Tape,off
+* Tape input through the MiSTer's ADC (not tested); the tape output tone can be mixed into the audio
+* Sound is mixed: the speaker, the SID and the tape tone, each with an on/off switch
 * Black or Dark background
 * Atom or BBC Basic mode
 * Colour palette
 * SID sound
-* Turbo mode (f1,f2,f3,f4)
+* Turbo mode (f1,f2,f3,f4), or a CPU speed chosen in the OSD and applied at reset
 * Four keyboards - UK(default),USA,original,game
+* Load ROM: a 192 KB image in the layout of roms/ATOM192k.mif replaces every ROM and RAM bank
+
+## OSD
+The top page holds the media (the SD card image and Load ROM) and the pages
+Machine, Video, Input and Audio. Keyboard layout (Input) applies at once; every
+other setting is applied by **Apply and reset** (or any other reset), and
+"Changes pending" shows while an OSD value differs from what the machine runs.
+Machine also has a BREAK button; Shift-BREAK and Ctrl-BREAK are still typed on
+the keyboard (F10 is BREAK).
+
+A `games/AcornAtom/boot0.rom` is loaded at start if present (192 KB, same
+layout as the mif); Load ROM picks another image for the session.
 
 ## Controls
 UK/US Keyboards - Shift lock is Caps, Repeat is right Alt, copy is tab - Left Alt is xtra shift key. 
@@ -37,10 +49,16 @@ You need a boot.vhd file formatted as FAT and around 100MB. There is a blank.zip
 
 Attach the boot.vhd and copy software onto it.
 
-Detach the VHD and place the file in the games/AcornAtom folder on your SD card. 
+Detach the VHD and place the file in the games/AcornAtom folder on your SD card, and mount it
+on the OSD's "Pri. disk (SD)" row; the mount is remembered across core starts.
 
 To auto boot the software menu Shift-Break(f10), Ctrl-Break disables the MMC Rom
 
 The best software source is the AtomSoftwareArchive V11 zip 11.9MB
 
 There are several sites dedicated to the atom.
+
+## Simulation
+`verilator/` holds a Verilator simulation of the whole core (the AtoMMC's AVR
+included) with screenshots, typed input, VHD mounting and a regression suite:
+see `verilator/README.md`.

@@ -8,6 +8,7 @@ module keyboard
 	input				clk_en,
 	input			 	reset,
 	input		[1:0]	layout,
+	input		[1:0]	turbo_default,  // CPU speed at reset (OSD); F1-F4 change it live
 	input  		[10:0]	ps2_key,
 	input	 	[3:0]	row,
 	input		[15:0]	joy1,
@@ -23,7 +24,7 @@ module keyboard
 
 );
 
-wire [8:0]     code;
+reg  [8:0]     code;
 
 //reg            	extended;
 reg  [5:0]     	keys [0:9];
@@ -85,7 +86,7 @@ always @(posedge clk) begin
       keys[7]    	<= 6'b111111;
       keys[8]    	<= 6'b111111;
       keys[9]    	<= 6'b111111;
-      turbo      	<= 2'b00;
+      turbo      	<= turbo_default;
 	end
 	
 	if (key_strobe)
