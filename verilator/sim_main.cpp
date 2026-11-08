@@ -104,6 +104,7 @@ int  tape_at_frame = 0;
 bool opt_tape_fast = true;          // OSD Tape speed: 4x
 bool opt_tape_overlay = true;
 bool trace_tape = false;
+bool sloppy_shift = false;          // --sloppy-shift: let go of Shift before the key it shifts
 std::vector<int> rewind_frames;
 
 struct MemDump { int frame; unsigned addr; unsigned len; };
@@ -256,8 +257,9 @@ static void queue_key_string(const std::string& keys)
 		if (m.code == 0xFF) { printf("send-keys: no mapping for '%c' (0x%02x) -- skipped\n", c, (unsigned char)c); continue; }
 		if (m.shift) input.keyEvents.push(SimInput_PS2KeyEvent(SHIFT, true, false, SHIFT));
 		input.keyEvents.push(SimInput_PS2KeyEvent(m.code, true,  m.ext, m.code));
+		if (m.shift && sloppy_shift) input.keyEvents.push(SimInput_PS2KeyEvent(SHIFT, false, false, SHIFT));
 		input.keyEvents.push(SimInput_PS2KeyEvent(m.code, false, m.ext, m.code));
-		if (m.shift) input.keyEvents.push(SimInput_PS2KeyEvent(SHIFT, false, false, SHIFT));
+		if (m.shift && !sloppy_shift) input.keyEvents.push(SimInput_PS2KeyEvent(SHIFT, false, false, SHIFT));
 	}
 }
 
@@ -530,6 +532,7 @@ static void usage(const char* argv0)
 	"  --tape-overlay on|off      OSD Tape overlay (default on)\n"
 	"  --rewind-at N[,N,...]      press OSD Rewind tape at these frames\n"
 	"  --trace-tape               print deck state changes\n"
+	"  --sloppy-shift             release Shift before the key it shifts (as fast typists do)\n"
 	"  --joy 1|2:N:BUTTONS        joystick N from frame N, e.g. 1:300:UP+FIRE; 1:400: lets go\n"
 	"  --dump-mem ADDR:LEN@FRAME  snapshot the 192K image to memdump_*.bin (hex)\n"
 	"  --poke ADDR=BYTES@FRAME    write the image directly; BYTES is hex, FFx256 repeats\n"
@@ -602,6 +605,7 @@ int main(int argc, char** argv, char** env)
 		else if (a == "--tape-at")          tape_at_frame = atoi(next("--tape-at").c_str());
 		else if (a == "--rewind-at")        rewind_frames = int_list(next("--rewind-at"));
 		else if (a == "--trace-tape")       trace_tape = true;
+		else if (a == "--sloppy-shift")     sloppy_shift = true;
 		else if (a == "--tape-speed") { std::string v = next("--tape-speed"); opt_tape_fast = v != "normal"; }
 		else if (a == "--tape-overlay") { std::string v = next("--tape-overlay"); opt_tape_overlay = v != "off"; }
 		else if (a == "--dump-mem") {

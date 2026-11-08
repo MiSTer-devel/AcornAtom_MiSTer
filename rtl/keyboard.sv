@@ -34,6 +34,15 @@ reg  			key_strobe = 1'b0;
 reg				key_press;
 reg				left_alt;
 
+// Each layout has two tables, Shift up and Shift down. A key is released
+// through the table it was pressed through: choosing by Shift's state at the
+// release left a key down in the other table when Shift was let go first
+// (Shift, ' down, Shift up, ' up left " held: everything typed after it came
+// out wrong, ERROR 94).
+reg  [511:0]	press_shifted = 512'd0;
+wire			unshifted = key_press ? shift_press : ~press_shifted[code];
+always @(posedge clk) if (key_strobe && clk_en && key_press) press_shifted[code] <= ~shift_press;
+
 //https://github.com/hoglet67/AtomFpga/blob/e72d68a968c0833ed34a4582b6c9f1b58265f5fc/src/ps2kybrd/keyboard.vhd
    always @(*)
 
@@ -92,7 +101,7 @@ always @(posedge clk) begin
 	if (key_strobe)
 	  if(clk_en == 1'b1)
 		if (layout == 2'b00) // uk
-			if (shift_press)
+			if (unshifted)
 			begin
 				shift_out  <= 1'b1;
 				casex(code)
@@ -317,7 +326,7 @@ always @(posedge clk) begin
 			end
 		else
 		if (layout == 2'b01) //usa
-			if (shift_press)
+			if (unshifted)
 			begin
             
 
@@ -528,7 +537,7 @@ always @(posedge clk) begin
 			end
 		else
 		if (layout == 2'b10) //orig
-			if (shift_press)
+			if (unshifted)
 			begin
             
 
@@ -693,7 +702,7 @@ always @(posedge clk) begin
 			end
 		else
 		if (layout == 2'b11) //game shift and ctrl swapped
-            if (shift_press)
+            if (unshifted)
 			begin
             
 
