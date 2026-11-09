@@ -20,9 +20,11 @@ as `~/dev2/tape-standard.md` asks each core to keep. Dates are 2026-11-08.
 |---|---|---|---|---|
 | BBALL | BASIC, 1 block | 0:16 | 3.9 s (237 frames, deck start to stop) | simulator |
 | BBALL | | | about 4 s | mister192 |
+| BBALL at Normal | | | 14.7 s (883 frames, deck start to stop) | simulator |
 | ASTEROIDS | machine code, 11 blocks | 2:19 | about 35 s | mister192 |
 
-Normal speed (300 baud) has not been measured end to end.
+Turbo cuts the BBALL load from 14.7 s to 3.9 s, 3.7 times (the deck's start and its 250 ms
+run-on are not sped up).
 
 ## Corpus
 
@@ -45,8 +47,10 @@ checksum as it plays (README, Tape).
 
 - Simulator (`verilator/run_tests.sh`): hints for a BASIC, a machine-code and a
   data tape; a whole BBALL load to the RUN hint.
+- Simulator: Rewind tape after a load returns the tape to its start and the hint to the
+  load step; Tape speed Normal loads BBALL in real time.
 - mister192: BBALL (F11, `LOAD"BBALL"`, RUN: the game), ASTEROIDS (F11,
   `*RUN"ASTEROIDS"`: the game's score table).
 
-Not yet: Normal speed, Rewind tape, a multi-file tape's second file, SAVE (the
+Not yet: a multi-file tape's second file, Normal speed and Rewind on hardware, SAVE (the
 tape output goes to the audio only), the hint over the whole corpus by loading.
