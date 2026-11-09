@@ -12,7 +12,7 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
 * System Roms with mmc (to access the SD card)
 * Seven additional Roms and 1 slot of ram to download additional Rom.
 * Two character sets.
-* Tape: UEF images from the OSD (Tape), played at 4x with a status bar and a hint that says what to type; tape input through the MiSTer's ADC too
+* Tape: UEF images (plain or gzipped) from the OSD (Tape), played at 4x with a status bar and a hint that says what to type; tape input through the MiSTer's ADC too
 * Sound is mixed: the speaker, the SID and the tape tone, each with an on/off switch
 * Black or Dark background
 * Atom or BBC Basic mode
@@ -35,7 +35,8 @@ A `games/AcornAtom/boot0.rom` is loaded at start if present (192 KB, same
 layout as the mif); Load ROM picks another image for the session.
 
 ## Tape
-Choose a `.uef` in the OSD's **Tape** row (the Atom Software Archive's UEFs work).
+Choose a `.uef` in the OSD's **Tape** row: plain or gzipped (the Atom Software
+Archive's UEFs are plain; most other collections gzip theirs), up to 128 KB expanded.
 The AtoMMC ROM takes over LOAD and SAVE, so the tape needs the Atom without it:
 the box in the bottom-left corner says what to do, read from the tape itself:
 
@@ -46,6 +47,11 @@ the box in the bottom-left corner says what to do, read from the tape itself:
 3. The deck plays (the Atom has no motor relay: it plays while the kernel reads
    the tape) at 4x with a status bar, then stops. A BASIC program ends with
    `TYPE RUN`.
+4. On a tape with more files (instructions, then the game; a title screen, then
+   the game), the box then shows the next file's command, once RUN has been
+   typed for a BASIC file. Stop the program first if it is still running
+   (ESCAPE). A file straight after another of the same name is taken for a
+   backup copy and skipped.
 
 The command is chosen from the file's header: execution address #C2B2 or #CE86
 is BASIC; an execution address inside the file's own memory (outside video RAM)
@@ -57,8 +63,8 @@ blocks follow" flag set on their only block, so a real Atom's LOAD would wait fo
 a block that never comes. The deck corrects that flag, and the block checksum,
 as it plays such a block, and only when the tape has no next block of that file.
 
-Tape speed Normal plays at the real 300 baud. CSW and gzipped UEFs are not
-supported yet (the OSD says "Tape format not supported").
+Tape speed Normal plays at the real 300 baud. CSW is not supported (the OSD
+says "Tape format not supported").
 
 ## Controls
 The PC layouts type what is printed on the PC key (US or UK keyboard). The Atom

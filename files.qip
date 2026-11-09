@@ -75,5 +75,6 @@
 	set_global_assignment -name VHDL_FILE rtl/AtomFpga_Core.vhd
 	set_global_assignment -name SYSTEMVERILOG_FILE AcornAtom.sv
 	set_global_assignment -name SDC_FILE AcornAtom.sdc
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/gunzip.sv
 	set_global_assignment -name SYSTEMVERILOG_FILE rtl/atom_tape.sv
 	set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_overlay.sv

@@ -175,6 +175,7 @@ wire  [7:0] ioctl_index;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
 wire [7:0]  ioctl_dout;
+wire        tape_wait;                   // the tape deck expands a gzipped tape as it downloads
 wire        forced_scandoubler;
 wire [21:0] gamma_bus;
 wire        direct_video;
@@ -220,6 +221,7 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
+	.ioctl_wait(tape_wait),
 	
 	//.uart_mode(16'b000_11111_000_11111),
 
@@ -307,10 +309,13 @@ wire  [7:0] mem_din,mem_dout;
 
 // Load ROM (F0, and games/AcornAtom/boot0.rom at start): a whole 192 KB image
 // in the layout of roms/ATOM192k.mif, written over the mif contents while the
-// machine is held in reset (reset includes ioctl_download).
-wire [17:0] ram_addr = ioctl_download ? ioctl_addr[17:0] : mem_addr;
-wire  [7:0] ram_din  = ioctl_download ? ioctl_dout       : mem_din;
-wire        ram_we   = ioctl_download ? (ioctl_wr && ioctl_index == 0 && ioctl_addr < 25'd196608) : mem_we;
+// machine is held in reset (reset includes that download).
+// Only the ROM download (index 0) takes the RAM: a tape download must not
+// change what the running CPU reads.
+wire        rom_dl   = ioctl_download && ioctl_index == 8'd0;
+wire [17:0] ram_addr = rom_dl ? ioctl_addr[17:0] : mem_addr;
+wire  [7:0] ram_din  = rom_dl ? ioctl_dout       : mem_din;
+wire        ram_we   = rom_dl ? (ioctl_wr && ioctl_addr < 25'd196608) : mem_we;
 
 spram #(8, 18, 196608, "roms/ATOM192k.mif") rom
 (
@@ -478,7 +483,8 @@ wire freeze_sync;
 // rtl/atom_tape.sv: a UEF in block RAM played into the cassette input; the deck
 // plays while the CPU runs the kernel's tape-read routine (no motor relay on the
 // Atom) and turbo (4x) follows it. rtl/tape_overlay.sv: status bar and hint.
-wire        tape_at_start, tape_file_end;
+wire        tape_between, tape_prev_basic;
+wire  [4:0] tape_file_idx;
 wire [31:0] tape_played, tape_total;
 wire        tape_hdr_ok;
 wire [103:0] tape_hdr_name;
@@ -489,10 +495,11 @@ atom_tape #(.CLK_HZ(31_500_000)) atom_tape
 (
 	.clk(clk_sys),
 	.reset(reset),
-	.dl(ioctl_download && ioctl_index == 8'd1),
-	.wr(ioctl_wr),
-	.addr(ioctl_addr),
-	.data(ioctl_dout),
+	.dl_in(ioctl_download && ioctl_index == 8'd1),
+	.wr_in(ioctl_wr),
+	.addr_in(ioctl_addr),
+	.data_in(ioctl_dout),
+	.dl_wait(tape_wait),
 	.tick(cas_tick),
 	.cpu_addr(cpu_addr),
 	.cpu_ce(cpu_clken),
@@ -511,8 +518,9 @@ atom_tape #(.CLK_HZ(31_500_000)) atom_tape
 	.hdr_load(tape_hdr_load),
 	.file_lo(tape_file_lo),
 	.file_hi(tape_file_hi),
-	.file_end(tape_file_end),
-	.at_start(tape_at_start),
+	.between(tape_between),
+	.prev_basic(tape_prev_basic),
+	.file_idx(tape_file_idx),
 	.info_req(tape_info_req),
 	.info(tape_info)
 );
@@ -533,8 +541,9 @@ tape_status #(.CHARS(28)) tape_status
 	.fast(tape_turbo),
 	.played(tape_played),
 	.total(tape_total),
-	.at_start(tape_at_start),
-	.file_end(tape_file_end),
+	.between(tape_between),
+	.prev_basic(tape_prev_basic),
+	.file_idx(tape_file_idx),
 	.hdr_ok(tape_hdr_ok),
 	.hdr_name(tape_hdr_name),
 	.hdr_len(tape_hdr_len),

@@ -57,10 +57,14 @@ shifted key depends on the OSD layout, exactly as on the hardware.
 |---|---|
 | boot | the banner and prompt at frame 60 (golden image) |
 | print | `PRINT 1+1` answers 2 (golden image) |
+| unmapped | `P.?#BC00;?#B500=5;P.?#B500;P.?#B000` prints 241 241 0: undecoded #Bxxx reads #F1 and keeps nothing (golden image) |
 | cat | `*CAT` on `../software/mister11/boot.vhd` lists the directory (golden image; skipped without the VHD) |
 | sid, sid4 | a voice gated from BASIC moves the audio output at 1 MHz and in 4 MHz turbo (`--trace-audio` log) |
 | hint_basic, hint_code, hint_data | the tape hint for BBALL (`LOAD`), ASTEROIDS (`*RUN`) and a loading screen (`*LOAD`) at frame 50 |
 | tape_bball | F11, `LOAD"BBALL"`, a key at PLAY TAPE: the 4x load ends at the prompt with `TYPE RUN` (frame 580) |
+| hint_gz | BBALL gzipped: the same picture as hint_basic (`GOLDEN=hint_basic`) |
+| tape_multi_next, tape_multi_run | HILO and BBALL joined into one tape: after `LOAD"HILO"` and RUN the hint shows `LOAD"BBALL"` over HILO (frame 1000); ESCAPE, `LOAD"BBALL"`: `TYPE RUN` (frame 1600) |
+| gunzip | `tests/gunzip/run.sh`: `rtl/gunzip.sv` alone in a small testbench; every UEF under `../software` expanded with and without download stalls, compared with Python's gzip (seconds) |
 
 Each scenario takes a few minutes; `./run_tests.sh boot` runs one.
 

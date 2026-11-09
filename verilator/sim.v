@@ -92,7 +92,8 @@ module top (
 	output        dbg_tape_turbo,
 	output        dbg_tape_level,
 	output        dbg_tape_hooked,
-	output        dbg_tape_file_end,
+	output  [4:0] dbg_tape_file,
+	output        dbg_tape_between,
 	output [31:0] dbg_tape_played,
 	output [31:0] dbg_tape_total,
 	output  [7:0] dbg_tape_info,
@@ -219,7 +220,8 @@ AtomFpga_Core core (
 
 //////////////////////////////  TAPE  ////////////////////////////////////////
 // As AcornAtom.sv (rtl/atom_tape.sv, rtl/tape_overlay.sv).
-wire        tape_at_start, tape_file_end;
+wire        tape_between, tape_prev_basic;
+wire  [4:0] tape_file_idx;
 wire [31:0] tape_played, tape_total;
 wire        tape_hdr_ok;
 wire [103:0] tape_hdr_name;
@@ -228,18 +230,19 @@ wire [15:0] tape_hdr_exec, tape_hdr_load, tape_file_lo;
 wire [16:0] tape_file_hi;
 wire        tape_info_req;
 wire  [7:0] tape_info;
-assign ioctl_wait = 1'b0;
+wire tape_wait;
+assign ioctl_wait = tape_wait;
 
 atom_tape #(.CLK_HZ(31_500_000)) atom_tape (
 	.clk(clk_32), .reset(reset),
-	.dl(ioctl_download && ioctl_index == 8'd1), .wr(ioctl_wr), .addr(ioctl_addr), .data(ioctl_dout),
+	.dl_in(ioctl_download && ioctl_index == 8'd1), .wr_in(ioctl_wr), .addr_in(ioctl_addr), .data_in(ioctl_dout), .dl_wait(tape_wait),
 	.tick(cas_tick), .cpu_addr(cpu_addr), .cpu_ce(cpu_clken),
 	.rewind(tape_rewind), .fast_sel(tape_fast_sel),
 	.level(tape_level), .loaded(tape_loaded), .playing(tape_playing), .turbo(tape_turbo),
 	.played(tape_played), .total(tape_total),
 	.hdr_ok(tape_hdr_ok), .hdr_name(tape_hdr_name), .hdr_len(tape_hdr_len),
 	.hdr_exec(tape_hdr_exec), .hdr_load(tape_hdr_load), .file_lo(tape_file_lo), .file_hi(tape_file_hi),
-	.file_end(tape_file_end), .at_start(tape_at_start),
+	.between(tape_between), .prev_basic(tape_prev_basic), .file_idx(tape_file_idx),
 	.info_req(tape_info_req), .info(tape_info)
 );
 
@@ -251,7 +254,7 @@ wire [28*16+48:0] tape_stat;
 wire        tape_req, tape_ack;
 tape_status #(.CHARS(28)) tape_status (
 	.clk(clk_32), .loaded(tape_loaded), .playing(tape_playing), .fast(tape_turbo),
-	.played(tape_played), .total(tape_total), .at_start(tape_at_start), .file_end(tape_file_end),
+	.played(tape_played), .total(tape_total), .between(tape_between), .prev_basic(tape_prev_basic), .file_idx(tape_file_idx),
 	.hdr_ok(tape_hdr_ok), .hdr_name(tape_hdr_name), .hdr_len(tape_hdr_len), .hdr_exec(tape_hdr_exec),
 	.file_lo(tape_file_lo), .file_hi(tape_file_hi),
 	.hooked(tape_hooked), .bbc(bbc_mode), .ps2_key(ps2_key),
@@ -271,7 +274,8 @@ assign dbg_tape_playing = tape_playing;
 assign dbg_tape_turbo = tape_turbo;
 assign dbg_tape_level = tape_level;
 assign dbg_tape_hooked = tape_hooked;
-assign dbg_tape_file_end = tape_file_end;
+assign dbg_tape_file = tape_file_idx;
+assign dbg_tape_between = tape_between;
 assign dbg_tape_played = tape_played;
 assign dbg_tape_total = tape_total;
 assign dbg_tape_info = tape_info;

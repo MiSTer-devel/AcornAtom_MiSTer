@@ -92,6 +92,7 @@ void SimBus::BeforeEval()
 				}
 			}
 		}
+		else *ioctl_wr = 0;   // as hps_io: one write strobe per byte, none while the core waits
 	}
 	else {
 		*ioctl_download = 0;

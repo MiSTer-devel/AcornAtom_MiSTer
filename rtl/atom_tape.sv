@@ -2,13 +2,13 @@
 //  Cassette deck for the Acorn Atom core: a UEF image in block RAM, played
 //  into the 8255's cassette input (PC5), per ~/dev2/tape-standard.md.
 //
-//  Format. UEF ("UEF File!"), uncompressed (the Atom Software Archive's UEFs
-//  all are): chunks &0100 (8N1 data), &0104 (defined format: bits, parity,
+//  Format. UEF ("UEF File!"), plain or gzipped: chunks &0100 (8N1 data), &0104 (defined format: bits, parity,
 //  stop bits; a negative stop count adds one short wave, as the UEF spec
 //  says), &0110 (carrier: cycles of 2400 Hz), &0111 (carrier, &AA, carrier),
 //  &0112 (gap, n/600 s). Others (&0000 origin, &0117 baud, which is always
-//  300 on the Atom) are skipped. A gzipped UEF or anything else reports
-//  "Tape format not supported"; more than 128 KB "Tape too large".
+//  300 on the Atom) are skipped. A gzipped UEF (most UEF collections are) is
+//  expanded as it downloads (rtl/gunzip.sv). Anything else reports "Tape
+//  format not supported"; more than 128 KB expanded "Tape too large".
 //
 //  Timebase. The Atom's cassette is CUTS at 300 baud: a 1 is eight cycles of
 //  2400 Hz, a 0 four cycles of 1200 Hz. Both are made from `tick`, the core's
@@ -24,11 +24,16 @@
 //  did, and stops otherwise, so the tape waits at a prompt and between loads
 //  like a real deck under a patient user. Turbo follows the deck.
 //
-//  The tape's first file: its name, load and execution addresses come from
-//  the first block header as the image downloads (Atom block: four '*', the
-//  name, &0D, flag, block number, length-1, exec, load; flag bit 7 = more
-//  blocks). `file_end` is set when the player has passed the first file's
-//  last block, for the next-step hint.
+//  The files, for the next-step hint. As the image downloads, the block
+//  headers (Atom block: four '*', the name, &0D, flag, block number,
+//  length-1, exec, load; flag bit 7 = more blocks) are grouped into files: a
+//  block that is not the previous one's next (same name, number + 1) starts a
+//  file. Up to NF files are kept (name, exec, load, address range, where the
+//  file starts and ends in the image); a file straight after another of the
+//  same name is a backup copy and is left out. As the tape plays, `hdr_*`
+//  describe the next file the deck has not entered yet, `between` says the
+//  deck is not inside a file (at the start, between files or past the last),
+//  and `prev_basic` says the file before it was BASIC.
 //============================================================================
 
 module atom_tape #(
@@ -46,10 +51,11 @@ module atom_tape #(
 	input             clk,
 	input             reset,                 // power-on / core reset: rewinds nothing
 
-	input             dl,                    // ioctl_download for the tape's index
-	input             wr,
-	input      [24:0] addr,
-	input       [7:0] data,
+	input             dl_in,                 // ioctl_download for the tape's index
+	input             wr_in,
+	input      [24:0] addr_in,
+	input       [7:0] data_in,
+	output            dl_wait,               // ioctl_wait: a gzipped tape is expanded as it comes
 
 	input             tick,                  // one per 2400 Hz half cycle (scales with turbo)
 	input      [15:0] cpu_addr,              // the CPU's address bus ...
@@ -66,16 +72,17 @@ module atom_tape #(
 	output reg [31:0] played,                // ticks played since the start of the tape
 	output reg [31:0] total,                 // ticks on the tape (counted at download)
 
-	// the first file, for the hint
-	output reg        hdr_ok,
-	output reg [103:0] hdr_name,             // 13 characters, the first in [103:96], space padded
-	output reg  [3:0] hdr_len,
-	output reg [15:0] hdr_exec,
-	output reg [15:0] hdr_load,
-	output reg [15:0] file_lo,               // the first file's lowest load address ...
-	output reg [16:0] file_hi,               // ... and the end of its highest block
-	output reg        file_end,              // the first file has played to its end
-	output            at_start,
+	// the next file, for the hint
+	output            hdr_ok,                // there is a next file
+	output    [103:0] hdr_name,              // 13 characters, the first in [103:96], space padded
+	output      [3:0] hdr_len,
+	output     [15:0] hdr_exec,
+	output     [15:0] hdr_load,
+	output     [15:0] file_lo,               // its lowest load address ...
+	output     [16:0] file_hi,               // ... and the end of its highest block
+	output            between,               // the deck is not inside a file
+	output reg        prev_basic,            // the file before the next was BASIC
+	output reg  [4:0] file_idx,              // the next file's number (0 = the first)
 
 	// OSD info message (hps_io info_req / info)
 	output reg        info_req,
@@ -83,16 +90,39 @@ module atom_tape #(
 );
 
 localparam integer HOLD = CLK_HZ / 4;        // the deck runs on 250 ms after the last read
+localparam integer NF   = 16;                // files kept for the hint
 
 //----------------------------------------------------------------------------
 // The image
 //----------------------------------------------------------------------------
+// The download goes through the inflater: a gzipped UEF is expanded into the
+// RAM, anything else is copied. From here on `dl`, `wr`, `addr` and `data`
+// are the expanded image, and the download lasts until it is all in.
+wire        gz_wr, gz_busy, gz_gz, gz_err;
+wire [24:0] gz_addr;
+wire  [7:0] gz_data;
+wire [AW-1:0] gz_ra;
+reg         dl_d;
+always @(posedge clk) dl_d <= dl_in;
+
 reg  [7:0] mem [0:(1 << AW) - 1];
 reg  [AW-1:0] rd_addr;
 reg  [7:0] rd_data;
+
+gunzip #(.AW(AW)) gunzip (
+	.clk(clk), .start(dl_in && !dl_d), .in_wr(dl_in && wr_in), .in_data(data_in), .in_end(!dl_in),
+	.in_wait(dl_wait),
+	.out_wr(gz_wr), .out_addr(gz_addr), .out_data(gz_data), .rd_addr(gz_ra), .rd_data(rd_data),
+	.busy(gz_busy), .gz(gz_gz), .err(gz_err)
+);
+wire        dl   = dl_in || gz_busy;
+wire        wr   = gz_wr;
+wire [24:0] addr = gz_addr;
+wire  [7:0] data = gz_data;
+
 always @(posedge clk) begin
-	if (dl && wr && addr < (25'd1 << AW)) mem[addr[AW-1:0]] <= data;
-	rd_data <= mem[rd_addr];
+	if (wr && addr < (25'd1 << AW)) mem[addr[AW-1:0]] <= data;
+	rd_data <= mem[gz_busy ? gz_ra : rd_addr];
 end
 
 reg [24:0] len;
@@ -133,12 +163,14 @@ reg  [7:0] h_flag, h_lenm1, h_blk_hi, h_load_hi;
 reg [15:0] h_blk;
 reg [8:0]  h_skip;
 reg [103:0] h_name;                           // this block's name, space padded
+reg  [3:0] h_len;                             // its length
+reg [15:0] h_exec;
+reg [24:0] h_off;                             // image offset of this block's first '*'
+reg [24:0] h_star;                            // ... of the current run of '*'
 reg [24:0] h_flag_off;                        // image offset of this block's flag byte
-reg        h_first;                           // this block belongs to the tape's first file
-reg [24:0] first_end;                         // image offset just past the first file
-reg        first_end_ok;
+reg        h_new;                             // this block starts a file
 // the previous block, until the next header says whether it was its file's last
-reg        p_valid, p_more, p_first;
+reg        p_valid, p_more;
 reg [103:0] p_name;
 reg [15:0] p_blk;
 reg [24:0] p_flag_off, p_ck_off;
@@ -147,6 +179,17 @@ localparam NFIX = 8;
 reg [24:0] fix_flag [0:NFIX-1];
 reg [24:0] fix_ck   [0:NFIX-1];
 reg  [3:0] nfix;
+// the file being scanned, and the table of files
+reg        f_open, f_skip, f_valid;
+reg [103:0] f_name;
+reg  [3:0] f_len;
+reg [15:0] f_exec, f_load, f_lo;
+reg [16:0] f_hi;
+reg [24:0] f_off;
+reg  [4:0] nfiles;
+// {start, end, name, length, exec, load, lowest address, end address}
+localparam FW = 25 + 25 + 104 + 4 + 16 + 16 + 16 + 17;
+reg [FW-1:0] ftab [0:NF-1];
 
 // the previous block was its file's last: repair it if it says otherwise
 task automatic prev_was_last;
@@ -155,17 +198,25 @@ task automatic prev_was_last;
 		fix_ck[nfix[2:0]]   <= p_ck_off;
 		nfix <= nfix + 1'd1;
 	end
-	if (p_first) begin h_first <= 1'b0; first_end <= p_ck_off + 1'd1; first_end_ok <= 1'b1; end
+	// the file it ends goes in the table
+	if (f_open && !f_skip && nfiles != NF) begin
+		ftab[nfiles[3:0]] <= {f_off, p_ck_off + 1'd1, f_name, f_len, f_exec, f_load, f_lo, f_hi};
+		nfiles <= nfiles + 1'd1;
+	end
+	f_open <= 1'b0;
 endtask
 
 task automatic scan(input [7:0] c);
 	case (h_state)
 	H_SEEK: begin
-		if (c == 8'h2A) begin if (h_stars != 3'd7) h_stars <= h_stars + 1'd1; end
+		if (c == 8'h2A) begin
+			if (h_stars == 0) h_star <= addr;
+			if (h_stars != 3'd7) h_stars <= h_stars + 1'd1;
+		end
 		else if (h_stars >= 3'd4) begin
-			h_stars <= 0; h_i <= 0;
+			h_stars <= 0; h_i <= 0; h_off <= h_star;
 			h_name <= {c == 8'h0D ? 8'h20 : c, {12{8'h20}}};
-			if (h_first && !hdr_ok) begin hdr_name <= {c, {12{8'h20}}}; hdr_len <= 4'd1; end
+			h_len <= c == 8'h0D ? 4'd0 : 4'd1;
 			if (c == 8'h0D) h_state <= H_HDR;
 			else begin h_state <= H_NAME; h_i <= 4'd1; end
 		end
@@ -175,10 +226,7 @@ task automatic scan(input [7:0] c);
 		if (c == 8'h0D || h_i == 4'd14) begin h_state <= H_HDR; h_i <= 0; end
 		else begin
 			for (int k = 1; k < 13; k++) if (h_i == k) h_name[103 - 8 * k -: 8] <= c;
-			if (h_first && !hdr_ok && h_i < 4'd13) begin
-				for (int k = 1; k < 13; k++) if (h_i == k) hdr_name[103 - 8 * k -: 8] <= c;
-				hdr_len <= h_i + 1'd1;
-			end
+			if (h_i < 4'd13) h_len <= h_i + 1'd1;
 			h_i <= h_i + 1'd1;
 		end
 	end
@@ -189,20 +237,35 @@ task automatic scan(input [7:0] c);
 		4'd1: h_blk_hi <= c;
 		4'd2: begin
 			h_blk <= {h_blk_hi, c};
-			// is this the previous block's continuation?
-			if (p_valid && !(p_more && h_name == p_name && {h_blk_hi, c} == p_blk + 1'd1)) prev_was_last();
+			// is this the previous block's continuation? If not, it starts a file
+			h_new <= 1'b1;
+			if (p_valid) begin
+				if (p_more && h_name == p_name && {h_blk_hi, c} == p_blk + 1'd1) h_new <= 1'b0;
+				else prev_was_last();
+			end
 			p_valid <= 1'b0;
 		end
 		4'd3: h_lenm1 <= c;
-		4'd4: if (h_first && !hdr_ok) hdr_exec[15:8] <= c;
-		4'd5: if (h_first && !hdr_ok) hdr_exec[7:0] <= c;
-		4'd6: begin h_load_hi <= c; if (h_first && !hdr_ok) hdr_load[15:8] <= c; end
+		4'd4: h_exec[15:8] <= c;
+		4'd5: h_exec[7:0] <= c;
+		4'd6: h_load_hi <= c;
 		4'd7: begin
-			if (h_first && !hdr_ok) begin hdr_load[7:0] <= c; hdr_ok <= 1'b1; end
-			// the first file's address range, over all its blocks (for the hint)
-			if (h_first && h_name == (hdr_ok ? hdr_name : h_name)) begin
-				if (!hdr_ok || {h_load_hi, c} < file_lo) file_lo <= {h_load_hi, c};
-				if (!hdr_ok || {1'b0, h_load_hi, c} + h_lenm1 + 1'd1 > file_hi) file_hi <= {1'b0, h_load_hi, c} + h_lenm1 + 1'd1;
+			if (h_new) begin
+				// a file starts; one of the previous file's name is its backup copy
+				f_open <= 1'b1;
+				f_skip <= f_valid && h_name == f_name;
+				if (!(f_valid && h_name == f_name)) begin
+					f_valid <= 1'b1;
+					f_name <= h_name; f_len <= h_len; f_exec <= h_exec; f_load <= {h_load_hi, c};
+					f_off <= h_off;
+					f_lo <= {h_load_hi, c};
+					f_hi <= {1'b0, h_load_hi, c} + h_lenm1 + 1'd1;
+				end
+			end
+			else if (!f_skip) begin
+				// the file's address range, over all its blocks
+				if ({h_load_hi, c} < f_lo) f_lo <= {h_load_hi, c};
+				if ({1'b0, h_load_hi, c} + h_lenm1 + 1'd1 > f_hi) f_hi <= {1'b0, h_load_hi, c} + h_lenm1 + 1'd1;
 			end
 			// data: length-1 + 1 bytes, then the checksum
 			h_skip <= {1'b0, h_lenm1} + 9'd2;
@@ -214,7 +277,7 @@ task automatic scan(input [7:0] c);
 	H_DATA: begin
 		if (h_skip == 9'd1) begin
 			h_state <= H_SEEK; h_stars <= 0;
-			p_valid <= 1'b1; p_more <= h_flag[7]; p_first <= h_first;
+			p_valid <= 1'b1; p_more <= h_flag[7];
 			p_name <= h_name; p_blk <= h_blk; p_flag_off <= h_flag_off; p_ck_off <= addr;
 		end
 		h_skip <= h_skip - 1'd1;
@@ -236,9 +299,10 @@ always @(posedge clk) begin
 	info_req <= 1'b0;
 	if (dl && !old_dl) begin
 		valid <= 1'b0; too_big <= 1'b0; total <= 0; len <= 0;
-		p_state <= P_SIG; hdr_ok <= 1'b0; hdr_len <= 0; hdr_name <= {13{8'h20}};
-		h_state <= H_SEEK; h_stars <= 0; h_first <= 1'b1; first_end_ok <= 1'b0;
+		p_state <= P_SIG;
+		h_state <= H_SEEK; h_stars <= 0;
 		p_valid <= 1'b0; nfix <= 0;
+		f_open <= 1'b0; f_skip <= 1'b0; f_valid <= 1'b0; nfiles <= 0;
 	end
 	if (dl && wr) begin
 		len <= addr + 1'd1;
@@ -293,9 +357,9 @@ always @(posedge clk) begin
 	end
 	if (!dl && old_dl) begin
 		if (p_valid) begin prev_was_last(); p_valid <= 1'b0; end   // the tape's last block
-		valid <= p_state != 4'd15 && !too_big && len > 25'd12;
+		valid <= p_state != 4'd15 && !too_big && len > 25'd12 && !gz_err;
 		info_req <= 1'b1;
-		info <= too_big ? 8'd3 : (p_state == 4'd15 || len <= 25'd12) ? 8'd2 : 8'd1;
+		info <= too_big ? 8'd3 : (p_state == 4'd15 || len <= 25'd12 || gz_err) ? 8'd2 : 8'd1;
 	end
 end
 
@@ -356,7 +420,18 @@ reg        extra;                             // a short wave after the byte
 reg  [3:0] tcnt;                              // ticks into the current bit
 reg [16:0] tone;                              // ticks of carrier / gap left
 reg  [1:0] sub;                               // &0111: 1 the &AA byte, 2 the second carrier
-assign at_start = loaded && played == 0;
+// The next file: the first the deck has not entered (fetched its first '*').
+// The table is a RAM: after file_idx moves, its entry takes two clocks.
+reg [FW-1:0] fq;
+reg  [1:0] settle;
+reg [24:0] prev_end;
+always @(posedge clk) fq <= ftab[file_idx[3:0]];
+wire [24:0] q_off = fq[FW-1 -: 25];
+wire [24:0] q_end = fq[FW-26 -: 25];
+wire        q_exec_basic = hdr_exec == 16'hC2B2 || hdr_exec == 16'hCE86;   // BASIC, or BASIC's RUN
+assign {hdr_name, hdr_len, hdr_exec, hdr_load, file_lo, file_hi} = fq[FW-51:0];
+assign hdr_ok  = loaded && settle == 0 && file_idx < nfiles;
+assign between = loaded && settle == 0 && (file_idx == 0 || pos >= prev_end);
 
 // the byte being played gets bit 7 flipped if it is a repaired flag or checksum
 reg fixit;
@@ -371,12 +446,18 @@ always @(posedge clk) begin
 	old_rewind <= rewind;
 	if ((dl && !old_dl) || (rewind && !old_rewind) || !loaded) begin
 		st <= S_IDLE; pos <= 25'd12; ci <= 0; at_end <= 1'b0;
-		played <= 0; file_end <= 1'b0; level <= 1'b0; tcnt <= 0;
+		played <= 0; level <= 1'b0; tcnt <= 0;
+		file_idx <= 0; prev_basic <= 1'b0; prev_end <= 0; settle <= 2'd2;
 	end
 	else begin
-		// Past the first file's last block (flag bit 7 clear), or the end of the
-		// tape: BBALL's only block is flagged C0, so the flag alone is not enough.
-		if ((first_end_ok && pos >= first_end) || at_end) file_end <= 1'b1;
+		if (settle != 0) settle <= settle - 1'd1;
+		else if (file_idx < nfiles && pos > q_off) begin
+			// the deck has entered the next file
+			prev_basic <= q_exec_basic;
+			prev_end <= q_end;
+			file_idx <= file_idx + 1'd1;
+			settle <= 2'd2;
+		end
 		case (st)
 		S_IDLE: begin st <= S_CHUNK; pos <= 25'd12; ci <= 0; end
 		S_FETCH: begin

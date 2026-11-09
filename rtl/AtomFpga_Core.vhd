@@ -245,12 +245,10 @@ architecture BEHAVIORAL of AtomFpga_Core is
 ----------------------------------------------------
 
     signal pl8_cs       : std_logic;
-	 signal spi_cs			: std_logic;
 	 signal A000_cs		: std_logic;
 	 signal RomLatch     : std_logic_vector (2 downto 0); 
 	 signal BFFF_Enable : std_logic;    
     signal RegBFFF     : std_logic_vector (7 downto 0);
-	 signal spi_dout     : std_logic_vector (7 downto 0);
     -- Unused outputs that VHDL requires to be associated (partial-open associations crash ghdl and
     -- draw Quartus critical warning 10920). Quartus removes them as dead logic.
     signal cpu_addr_hi  : std_logic_vector(7 downto 0);
@@ -799,7 +797,6 @@ end process;
         vid_cs  		<= '0';
         sid_cs       <= '0';
         pl8_cs       <= '0';
-		  spi_cs       <= '0';
 		  palette_cs	<= '0';
 		  ext_rom_cs 	<= '0';
         ext_ram_cs 	<= '0';
@@ -846,13 +843,11 @@ end process;
                      pl8_cs <= '1';
                 elsif cpu_addr(11 downto 4)       		= x"80" then --  0xB80x 6522 VIA
                      via_cs <= '1';
-					 elsif cpu_addr(11 downto 4) 		  		= x"C0" then --  SDOS
-							spi_cs <= '1';
 					 elsif cpu_addr(11 downto 4)				= x"D0" then --  PALETTE
 							palette_cs <= '1';
                 elsif cpu_addr(11 downto 5) & '0' 		= x"DC" then --  SID
                      sid_cs <= '1';
-					 else ext_ram_cs <= '1';
+					 else null;   -- un-decoded: no RAM here on an Atom; reads #F1 as upstream
                 end if;
             when x"C"   => ext_rom_cs <= '1';
             when x"D"   => ext_rom_cs <= '1';
@@ -872,13 +867,12 @@ end process;
         pia_dout     when pia_cs = '1'       else
 		  via_dout     when via_cs = '1'      	else
 		  pl8_data 		when pl8_cs = '1'			else
-		  spi_dout     when spi_cs = '1'    	else	
 		  sid_dout		when sid_cs = '1'       else  
 		  RegBFFF	 	when BFFF_Enable ='1'   else
 		  ram_dout		when A000_cs ='1'    	else
         ram_dout	 	when ext_ram_cs ='1'    else
 		  ram_dout		when ext_rom_cs ='1'    else
-		  x"EA";    
+		  x"F1";       -- un-decoded locations (upstream AtomFpga_Core)
 
 --------------------------------------------------------
 -- Clock enable generator

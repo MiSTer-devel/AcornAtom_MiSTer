@@ -7,3 +7,5 @@ atom192k.hex
 imgui.ini
 tests/out/
 !tests/golden/*.png
+tests/gunzip/obj/
+tests/gunzip/obj.log

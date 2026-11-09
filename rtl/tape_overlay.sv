@@ -44,13 +44,14 @@ module tape_status #(
 	input              fast,
 	input       [31:0] played,               // ticks
 	input       [31:0] total,                // ticks
-	input              at_start,
-	input              file_end,
-	input              hdr_ok,
+	input              between,              // the deck is not inside a file
+	input              prev_basic,           // the file before the next was BASIC
+	input        [4:0] file_idx,             // the next file's number
+	input              hdr_ok,               // the next file: there is one, ...
 	input      [103:0] hdr_name,
 	input        [3:0] hdr_len,
 	input       [15:0] hdr_exec,
-	input       [15:0] file_lo,              // the first file's address range
+	input       [15:0] file_lo,              // ... its address range
 	input       [16:0] file_hi,
 	input              hooked,               // the AtoMMC ROM has the LOAD vector
 	input              bbc,                  // BBC BASIC mode: no hint
@@ -111,7 +112,7 @@ end
 //----------------------------------------------------------------------------
 // The hint
 //----------------------------------------------------------------------------
-// What the first file is, from its header (checked against the whole Atom
+// What the next file is, from its header (checked against the whole Atom
 // Software Archive: 985 BASIC, 1212 machine code starting inside the file,
 // 2543 data: screens and menu pages that execute in video RAM, files whose
 // execution address is another program's):
@@ -121,16 +122,21 @@ end
 wire basic = hdr_exec == 16'hC2B2 || hdr_exec == 16'hCE86;
 wire code  = !basic && !(hdr_exec >= 16'h8000 && hdr_exec < 16'hA000) &&
              hdr_exec >= file_lo && {1'b0, hdr_exec} < file_hi;
+// When (rule 26): with the deck stopped outside a file, RUN after a BASIC
+// file until Return is pressed, then the next file's command, if there is a
+// next file. Inside a file (a load broken off) nothing.
 reg  run_done = 0;                           // RUN was typed (Return) after the load
 reg  old_key = 0;
+reg  [4:0] old_idx = 0;
 always @(posedge clk) begin
 	old_key <= ps2_key[10];
-	if (at_start) run_done <= 1'b0;
-	else if (ps2_key[10] != old_key && ps2_key[9] && ps2_key[8:0] == 9'h05A && file_end) run_done <= 1'b1;
+	old_idx <= file_idx;
+	if (file_idx != old_idx) run_done <= 1'b0;
+	else if (ps2_key[10] != old_key && ps2_key[9] && ps2_key[8:0] == 9'h05A && between && prev_basic) run_done <= 1'b1;
 end
 
-wire load_hint = loaded && hdr_ok && !bbc && at_start && !playing;
-wire run_hint  = loaded && hdr_ok && !bbc && basic && file_end && !playing && !run_done;
+wire run_hint  = loaded && !bbc && between && prev_basic && !playing && !run_done;
+wire load_hint = loaded && hdr_ok && !bbc && between && !playing && !run_hint;
 wire hint_show = load_hint || run_hint;
 wire hint_two  = load_hint;
 

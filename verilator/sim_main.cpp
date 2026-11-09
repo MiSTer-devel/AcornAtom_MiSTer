@@ -356,10 +356,10 @@ static void step()
 		bus.AfterEval();
 		if (top->dbg_tape_info_req) printf("[tape] info %d (1 ready, 2 not supported, 3 too large) total %u ticks\n", top->dbg_tape_info, top->dbg_tape_total);
 		if (trace_tape) {
-			static int lp = -1, lt = -1, lh = -1, le = -1;
-			if (top->dbg_tape_playing != lp || top->dbg_tape_turbo != lt || top->dbg_tape_hooked != lh || top->dbg_tape_file_end != le) {
-				lp = top->dbg_tape_playing; lt = top->dbg_tape_turbo; lh = top->dbg_tape_hooked; le = top->dbg_tape_file_end;
-				printf("[tape] playing=%d turbo=%d hooked=%d file_end=%d played=%u/%u frame=%d\n", lp, lt, lh, le,
+			static int lp = -1, lt = -1, lh = -1, le = -1, lb = -1;
+			if (top->dbg_tape_playing != lp || top->dbg_tape_turbo != lt || top->dbg_tape_hooked != lh || top->dbg_tape_file != le || top->dbg_tape_between != lb) {
+				lp = top->dbg_tape_playing; lt = top->dbg_tape_turbo; lh = top->dbg_tape_hooked; le = top->dbg_tape_file; lb = top->dbg_tape_between;
+				printf("[tape] playing=%d turbo=%d hooked=%d file=%d between=%d played=%u/%u frame=%d\n", lp, lt, lh, le, lb,
 				       top->dbg_tape_played, top->dbg_tape_total, video.count_frame);
 			}
 		}

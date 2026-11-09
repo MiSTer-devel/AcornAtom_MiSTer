@@ -11,8 +11,8 @@ as `~/dev2/tape-standard.md` asks each core to keep. Dates are 2026-11-08.
 | Timebase | The core's 2.4 kHz tone tick, 208 CPU cycles apart at every CPU speed, as on the real machine (4 MHz / 13 / 64 against 1 MHz); 16 ticks a bit |
 | Turbo | 4x: the CPU at 4 MHz and the tick with it, only while the deck plays. 8x is available in the clock divider but not used: 4x is what was tested |
 | Quick start | None: the Atom has no boot path that runs before the tape |
-| Next-step hint | Yes, from the first block header (see README) |
-| Formats | UEF (uncompressed), chunks &0100 &0104 &0110 &0111 &0112. Not CSW, not gzipped UEF |
+| Next-step hint | Yes, from the block headers: each file's command in turn, RUN after a BASIC file (see README) |
+| Formats | UEF, plain or gzipped (expanded as it downloads, `rtl/gunzip.sv`), chunks &0100 &0104 &0110 &0111 &0112. Not CSW |
 
 ## Load times
 
@@ -43,6 +43,13 @@ follow") on their only block; 1 multi-block file ends that way too; 2,175
 multi-block files end correctly. The deck repairs the flag and the block
 checksum as it plays (README, Tape).
 
+Other local collections (No-Intro and archive.org sets, local testing only):
+263 of their 324 UEFs are gzipped, and 189 hold more than one file. The common
+patterns are INSTRUCTIONS (BASIC) then the game, INDEX (a title screen at
+#8000) then the game, and LOADER then data and code; the instruction programs
+print what to type next (Defender: "NOW LOAD MAIN PROGRAM"; Labyrinth:
+`*RUN"LABYRINTH"`).
+
 ## Tested
 
 - Simulator (`verilator/run_tests.sh`): hints for a BASIC, a machine-code and a
@@ -51,6 +58,16 @@ checksum as it plays (README, Tape).
   load step; Tape speed Normal loads BBALL in real time.
 - mister192: BBALL (F11, `LOAD"BBALL"`, RUN: the game), ASTEROIDS (F11,
   `*RUN"ASTEROIDS"`: the game's score table).
+- Inflater (`verilator/tests/gunzip`): all 324 local UEFs (263 gzipped)
+  expand byte for byte as Python's gzip does, with and without download
+  stalls; also stored, fixed-code, RLE, empty and over-64 KB streams and a gzip
+  header with every optional field; truncated streams report an error.
+- Simulator: a gzipped BBALL gives the same hint as the plain one.
+- Simulator and mister192: a two-file tape (HILO then BBALL): `LOAD"HILO"`,
+  `TYPE RUN`; after RUN the box shows `LOAD"BBALL"` over the running HILO;
+  ESCAPE, `LOAD"BBALL"`, `TYPE RUN`, the game.
+- mister192: a gzipped BBALL (the download paced by `ioctl_wait`): the hint,
+  the load, the game.
 
-Not yet: a multi-file tape's second file, Normal speed and Rewind on hardware, SAVE (the
-tape output goes to the audio only), the hint over the whole corpus by loading.
+Not yet: Normal speed and Rewind on hardware, SAVE (the tape output goes to the
+audio only), the hint over the whole corpus by loading.
