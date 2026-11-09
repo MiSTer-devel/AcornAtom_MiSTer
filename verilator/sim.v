@@ -224,7 +224,8 @@ wire [31:0] tape_played, tape_total;
 wire        tape_hdr_ok;
 wire [103:0] tape_hdr_name;
 wire  [3:0] tape_hdr_len;
-wire [15:0] tape_hdr_exec, tape_hdr_load;
+wire [15:0] tape_hdr_exec, tape_hdr_load, tape_file_lo;
+wire [16:0] tape_file_hi;
 wire        tape_info_req;
 wire  [7:0] tape_info;
 assign ioctl_wait = 1'b0;
@@ -237,7 +238,7 @@ atom_tape #(.CLK_HZ(31_500_000)) atom_tape (
 	.level(tape_level), .loaded(tape_loaded), .playing(tape_playing), .turbo(tape_turbo),
 	.played(tape_played), .total(tape_total),
 	.hdr_ok(tape_hdr_ok), .hdr_name(tape_hdr_name), .hdr_len(tape_hdr_len),
-	.hdr_exec(tape_hdr_exec), .hdr_load(tape_hdr_load),
+	.hdr_exec(tape_hdr_exec), .hdr_load(tape_hdr_load), .file_lo(tape_file_lo), .file_hi(tape_file_hi),
 	.file_end(tape_file_end), .at_start(tape_at_start),
 	.info_req(tape_info_req), .info(tape_info)
 );
@@ -246,18 +247,19 @@ reg [7:0] lodvec_hi = 8'hF9;
 always @(posedge clk_32) if (mem_we && mem_addr == 18'h0020D) lodvec_hi <= mem_din;
 wire tape_hooked = lodvec_hi[7:4] != 4'hF;
 
-wire [26*16+48:0] tape_stat;
+wire [28*16+48:0] tape_stat;
 wire        tape_req, tape_ack;
-tape_status #(.CHARS(26)) tape_status (
+tape_status #(.CHARS(28)) tape_status (
 	.clk(clk_32), .loaded(tape_loaded), .playing(tape_playing), .fast(tape_turbo),
 	.played(tape_played), .total(tape_total), .at_start(tape_at_start), .file_end(tape_file_end),
 	.hdr_ok(tape_hdr_ok), .hdr_name(tape_hdr_name), .hdr_len(tape_hdr_len), .hdr_exec(tape_hdr_exec),
+	.file_lo(tape_file_lo), .file_hi(tape_file_hi),
 	.hooked(tape_hooked), .bbc(bbc_mode), .ps2_key(ps2_key),
 	.status(tape_stat), .req(tape_req), .ack(tape_ack)
 );
 
 wire [23:0] ov_rgb;
-tape_overlay #(.CHARS(26), .FACTOR(4'd4)) tape_overlay (
+tape_overlay #(.CHARS(28), .FACTOR(4'd4)) tape_overlay (
 	.clk(clk_42), .ce_pix(CE_PIXEL), .hblank(hblank), .vblank(vblank), .enable(tape_overlay_en),
 	.status(tape_stat), .req(tape_req), .ack(tape_ack),
 	.rgb_in({r[1], r[1], r[1], r[0], r[0], r[0], r, g[1], g[1], g[1], g[0], g[0], g[0], g, b[1], b[1], b[1], b[0], b[0], b[0], b}),

@@ -44,6 +44,9 @@ the working directory.
 | `--watch-pc ADDR[,...]` | count CPU accesses to addresses |
 | `--trace-cpu`, `--trace-cpu-from N`, `--trace-cpu-to N` | every CPU bus cycle |
 | `--trace-sd`, `--trace-key` | SD chip select, PS/2 events |
+| `--tape <f.uef>`, `--tape-at N`, `--tape-speed 4x\|normal`, `--tape-overlay on\|off`, `--rewind-at N`, `--trace-tape` | the tape deck (OSD Tape, ioctl index 1) |
+| `--osd-shift-break N`, `--osd-ctrl-break N`, `--sloppy-shift` | the OSD Shift-/Ctrl-BREAK buttons; release Shift before the key it shifts |
+| `tools/dis6502.py atom192k.hex FROM TO` | disassemble the ROM image |
 
 Keys are sent as the PS/2 codes of a US PC keyboard; what the Atom makes of a
 shifted key depends on the OSD layout, exactly as on the hardware.
@@ -56,6 +59,8 @@ shifted key depends on the OSD layout, exactly as on the hardware.
 | print | `PRINT 1+1` answers 2 (golden image) |
 | cat | `*CAT` on `../software/mister11/boot.vhd` lists the directory (golden image; skipped without the VHD) |
 | sid, sid4 | a voice gated from BASIC moves the audio output at 1 MHz and in 4 MHz turbo (`--trace-audio` log) |
+| hint_basic, hint_code, hint_data | the tape hint for BBALL (`LOAD`), ASTEROIDS (`*RUN`) and a loading screen (`*LOAD`) at frame 50 |
+| tape_bball | F11, `LOAD"BBALL"`, a key at PLAY TAPE: the 4x load ends at the prompt with `TYPE RUN` (frame 580) |
 
 Each scenario takes a few minutes; `./run_tests.sh boot` runs one.
 

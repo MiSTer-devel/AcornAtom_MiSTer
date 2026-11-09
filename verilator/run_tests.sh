@@ -63,4 +63,21 @@ run_sid() {
 }
 run_sid sid
 run_sid sid4 --turbo 4
+
+# Tape (rtl/atom_tape.sv, rtl/tape_overlay.sv): the next-step hint for each kind
+# of first file, read from the tape header (golden images at frame 50), and a
+# whole BBALL load: F11 (Ctrl-BREAK), LOAD"BBALL", a key at PLAY TAPE, the 4x
+# deck, the converter-flag repair, then the RUN hint at frame 580.
+U=../software/archive.org_atom-archive-13-uef
+if [ -f "$U/BBALL.uef" ] && [ -f "$U/ASTEROID.uef" ]; then
+	run hint_basic 50 --layout us --tape "$U/BBALL.uef"
+	run hint_code  50 --layout us --tape "$U/ASTEROID.uef"
+	if [ -z "$only" ] || [ "$only" = hint_data ]; then
+		python3 -I -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); open(sys.argv[2],'wb').write(z.read('Atom Archive 13 - UEF/AGD/ADAGGER/DAGSCR.uef'))" \
+			"$U/Atom Archive 13 - UEF.zip" "$OUT/DAGSCR.uef" && run hint_data 50 --layout us --tape "$OUT/DAGSCR.uef"
+	fi
+	run tape_bball 580 --layout us --tape "$U/BBALL.uef" --send-keys '60:\C' --send-keys '130:LOAD"BBALL"\n' --send-keys '260: '
+else
+	[ -z "$only" ] && echo "SKIP tape scenarios (no $U)"
+fi
 exit $fail

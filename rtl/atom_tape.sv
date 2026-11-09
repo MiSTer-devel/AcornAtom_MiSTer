@@ -72,6 +72,8 @@ module atom_tape #(
 	output reg  [3:0] hdr_len,
 	output reg [15:0] hdr_exec,
 	output reg [15:0] hdr_load,
+	output reg [15:0] file_lo,               // the first file's lowest load address ...
+	output reg [16:0] file_hi,               // ... and the end of its highest block
 	output reg        file_end,              // the first file has played to its end
 	output            at_start,
 
@@ -127,7 +129,7 @@ reg  [2:0] h_state;
 localparam H_SEEK = 3'd0, H_NAME = 3'd1, H_HDR = 3'd2, H_DATA = 3'd3;
 reg  [2:0] h_stars;
 reg  [3:0] h_i;
-reg  [7:0] h_flag, h_lenm1, h_blk_hi;
+reg  [7:0] h_flag, h_lenm1, h_blk_hi, h_load_hi;
 reg [15:0] h_blk;
 reg [8:0]  h_skip;
 reg [103:0] h_name;                           // this block's name, space padded
@@ -194,9 +196,14 @@ task automatic scan(input [7:0] c);
 		4'd3: h_lenm1 <= c;
 		4'd4: if (h_first && !hdr_ok) hdr_exec[15:8] <= c;
 		4'd5: if (h_first && !hdr_ok) hdr_exec[7:0] <= c;
-		4'd6: if (h_first && !hdr_ok) hdr_load[15:8] <= c;
+		4'd6: begin h_load_hi <= c; if (h_first && !hdr_ok) hdr_load[15:8] <= c; end
 		4'd7: begin
 			if (h_first && !hdr_ok) begin hdr_load[7:0] <= c; hdr_ok <= 1'b1; end
+			// the first file's address range, over all its blocks (for the hint)
+			if (h_first && h_name == (hdr_ok ? hdr_name : h_name)) begin
+				if (!hdr_ok || {h_load_hi, c} < file_lo) file_lo <= {h_load_hi, c};
+				if (!hdr_ok || {1'b0, h_load_hi, c} + h_lenm1 + 1'd1 > file_hi) file_hi <= {1'b0, h_load_hi, c} + h_lenm1 + 1'd1;
+			end
 			// data: length-1 + 1 bytes, then the checksum
 			h_skip <= {1'b0, h_lenm1} + 9'd2;
 			h_state <= H_DATA;

@@ -12,14 +12,15 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
 * System Roms with mmc (to access the SD card)
 * Seven additional Roms and 1 slot of ram to download additional Rom.
 * Two character sets.
-* Tape input through the MiSTer's ADC (not tested); the tape output tone can be mixed into the audio
+* Tape: UEF images from the OSD (Tape), played at 4x with a status bar and a hint that says what to type; tape input through the MiSTer's ADC too
 * Sound is mixed: the speaker, the SID and the tape tone, each with an on/off switch
 * Black or Dark background
 * Atom or BBC Basic mode
 * Colour palette
 * SID sound
-* Turbo mode (f1,f2,f3,f4), or a CPU speed chosen in the OSD and applied at reset
-* Four keyboards - UK(default),USA,original,game
+* Turbo mode (F1-F4), or a CPU speed chosen in the OSD and applied at reset
+* BREAK on F10, Shift-BREAK (AtoMMC menu) on F9, Ctrl-BREAK (no AtoMMC, for tapes) on F11; also OSD buttons
+* Four keyboards: PC (US, the default), PC (UK), Atom (original), Atom (game)
 * Load ROM: a 192 KB image in the layout of roms/ATOM192k.mif replaces every ROM and RAM bank
 
 ## OSD
@@ -27,13 +28,42 @@ The top page holds the media (the SD card image and Load ROM) and the pages
 Machine, Video, Input and Audio. Keyboard layout (Input) applies at once; every
 other setting is applied by **Apply and reset** (or any other reset), and
 "Changes pending" shows while an OSD value differs from what the machine runs.
-Machine also has a BREAK button; Shift-BREAK and Ctrl-BREAK are still typed on
-the keyboard (F10 is BREAK).
+Machine also has BREAK, Shift-BREAK and Ctrl-BREAK buttons, and the tape rows
+(Tape speed, Rewind tape); Tape overlay is on Video, Tape audio on Audio.
 
 A `games/AcornAtom/boot0.rom` is loaded at start if present (192 KB, same
 layout as the mif); Load ROM picks another image for the session.
 
+## Tape
+Choose a `.uef` in the OSD's **Tape** row (the Atom Software Archive's UEFs work).
+The AtoMMC ROM takes over LOAD and SAVE, so the tape needs the Atom without it:
+the box in the bottom-left corner says what to do, read from the tape itself:
+
+1. `PRESS F11 (CTRL-BREAK)`: the Atom restarts without the AtoMMC ROM.
+2. `TYPE LOAD"NAME"` for a BASIC program, `*RUN"NAME"` for machine code, or
+   `*LOAD"NAME"` for a data file (a loading screen, a menu page); then press any
+   key at PLAY TAPE.
+3. The deck plays (the Atom has no motor relay: it plays while the kernel reads
+   the tape) at 4x with a status bar, then stops. A BASIC program ends with
+   `TYPE RUN`.
+
+The command is chosen from the file's header: execution address #C2B2 or #CE86
+is BASIC; an execution address inside the file's own memory (outside video RAM)
+is machine code; anything else is data. That rule matched every tape of the
+archive's 4,745 by kind, but it is a rule, not something the tape states.
+
+The archive's single-block files (2,568 of them) were converted with the "more
+blocks follow" flag set on their only block, so a real Atom's LOAD would wait for
+a block that never comes. The deck corrects that flag, and the block checksum,
+as it plays such a block, and only when the tape has no next block of that file.
+
+Tape speed Normal plays at the real 300 baud. CSW and gzipped UEFs are not
+supported yet (the OSD says "Tape format not supported").
+
 ## Controls
+The PC layouts type what is printed on the PC key (US or UK keyboard). The Atom
+layouts follow the Atom's own key positions.
+
 UK/US Keyboards - Shift lock is Caps, Repeat is right Alt, copy is tab - Left Alt is xtra shift key. 
 
 The original keyboard had @ and up-arrow as separate keys these have moved to a PS2 config. 
@@ -52,7 +82,7 @@ Attach the boot.vhd and copy software onto it.
 Detach the VHD and place the file in the games/AcornAtom folder on your SD card, and mount it
 on the OSD's "Pri. disk (SD)" row; the mount is remembered across core starts.
 
-To auto boot the software menu Shift-Break(f10), Ctrl-Break disables the MMC Rom
+To auto boot the software menu press Shift-BREAK (F9, or Shift+F10); Ctrl-BREAK (F11, or Ctrl+F10) starts without the MMC ROM
 
 The best software source is the AtomSoftwareArchive V11 zip 11.9MB
 

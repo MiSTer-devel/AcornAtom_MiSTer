@@ -36,7 +36,7 @@
 `define TH_PLAY   8'h03
 
 module tape_status #(
-	parameter integer CHARS = 26
+	parameter integer CHARS = 28
 )(
 	input              clk,
 	input              loaded,
@@ -50,6 +50,8 @@ module tape_status #(
 	input      [103:0] hdr_name,
 	input        [3:0] hdr_len,
 	input       [15:0] hdr_exec,
+	input       [15:0] file_lo,              // the first file's address range
+	input       [16:0] file_hi,
 	input              hooked,               // the AtoMMC ROM has the LOAD vector
 	input              bbc,                  // BBC BASIC mode: no hint
 	input       [10:0] ps2_key,
@@ -109,7 +111,16 @@ end
 //----------------------------------------------------------------------------
 // The hint
 //----------------------------------------------------------------------------
-wire basic = hdr_exec == 16'hC2B2;
+// What the first file is, from its header (checked against the whole Atom
+// Software Archive: 985 BASIC, 1212 machine code starting inside the file,
+// 2543 data: screens and menu pages that execute in video RAM, files whose
+// execution address is another program's):
+//   BASIC (exec #C2B2, or #CE86, BASIC's RUN)  LOAD"NAME", then RUN
+//   exec inside the file, outside video RAM   *RUN"NAME"
+//   anything else (data)                      *LOAD"NAME"
+wire basic = hdr_exec == 16'hC2B2 || hdr_exec == 16'hCE86;
+wire code  = !basic && !(hdr_exec >= 16'h8000 && hdr_exec < 16'hA000) &&
+             hdr_exec >= file_lo && {1'b0, hdr_exec} < file_hi;
 reg  run_done = 0;                           // RUN was typed (Return) after the load
 reg  old_key = 0;
 always @(posedge clk) begin
@@ -123,15 +134,18 @@ wire run_hint  = loaded && hdr_ok && !bbc && basic && file_end && !playing && !r
 wire hint_show = load_hint || run_hint;
 wire hint_two  = load_hint;
 
-// "TYPE LOAD"NAME" <ret>" / "TYPE *RUN"NAME" <ret>": 13 + name characters
+// "TYPE LOAD"NAME" <ret>" / "TYPE *RUN"NAME" <ret>" / "TYPE *LOAD"NAME" <ret>":
+// 5 + the command (5 or 6) + name + 3 characters
+wire [4:0] plen = (basic || code) ? 5'd5 : 5'd6;
+wire [4:0] nst  = 5'd5 + plen;                // where the name starts
 function automatic [7:0] cmd_char(input [4:0] i);
 	reg [7:0] c;
 	c = " ";
 	if (i < 5'd5) c = "TYPE "  >> (8 * (4 - i));
-	else if (i < 5'd10) c = (basic ? "LOAD\"" : "*RUN\"") >> (8 * (9 - i));
-	else if (i < 5'd10 + hdr_len) c = (hdr_name << (8 * (i - 5'd10))) >> 96;   // a shift: Quartus checks part-select ranges even where the guard excludes them
-	else if (i == 5'd10 + hdr_len) c = "\"";
-	else if (i == 5'd12 + hdr_len) c = `TH_RETURN;
+	else if (i < nst) c = (basic ? "LOAD\"" : code ? "*RUN\"" : "*LOAD\"") >> (8 * (nst - 1'd1 - i));
+	else if (i < nst + hdr_len) c = (hdr_name << (8 * (i - nst))) >> 96;   // a shift: Quartus checks part-select ranges even where the guard excludes them
+	else if (i == nst + hdr_len) c = "\"";
+	else if (i == nst + 5'd2 + hdr_len) c = `TH_RETURN;
 	cmd_char = c;
 endfunction
 localparam [8*22-1:0] L_CTRL = "PRESS F11 (CTRL-BREAK)";
@@ -155,7 +169,7 @@ always @(*) begin
 		end
 		else if (i < 10) line1[8*(CHARS-1-i) +: 8] = L_RUN[8*(9-i) +: 8];
 	end
-	hint_len = !load_hint ? 5'd10 : (5'd13 + hdr_len > 5'd22) ? 5'd13 + hdr_len : 5'd22;
+	hint_len = !load_hint ? 5'd10 : (nst + 5'd3 + hdr_len > 5'd22) ? nst + 5'd3 + hdr_len : 5'd22;
 end
 
 wire [CHARS*16+48:0] pack = {hint_two, hint_show, hint_len, line1, line2, loaded, playing, fast, fill, elapsed, tot};
@@ -172,7 +186,7 @@ initial begin status = 0; req = 0; end
 endmodule
 
 module tape_overlay #(
-	parameter integer CHARS = 26,
+	parameter integer CHARS = 28,
 	parameter [3:0]   FACTOR = 4'd4          // shown as "x4" while turbo is on
 )(
 	input                      clk,          // video clock
