@@ -72,7 +72,7 @@ parameter CONF_STR = {
 
 	"P1O[10],Model,Atom,Atom (BBC BASIC);",
 	"P1O[14:13],CPU speed,1 MHz,2 MHz,4 MHz,8 MHz;",
-	"P1O[17],Tape speed,4x,Normal;",
+	"P1O[17],Tape speed,8x,Normal;",
 	"P1-;",
 	"P1T[15],BREAK;",
 	"P1T[20],Shift-BREAK (menu);",
@@ -495,7 +495,7 @@ wire freeze_sync;
 /////////////////  TAPE  ///////////////////////////
 // rtl/atom_tape.sv: a UEF in block RAM played into the cassette input; the deck
 // plays while the CPU runs the kernel's tape-read routine (no motor relay on the
-// Atom) and turbo (4x) follows it. rtl/tape_overlay.sv: status bar and hint.
+// Atom) and turbo (8x) follows it. rtl/tape_overlay.sv: status bar and hint.
 wire        tape_between, tape_prev_basic;
 wire  [4:0] tape_file_idx;
 wire [31:0] tape_played, tape_total;
@@ -574,7 +574,7 @@ tape_status #(.CHARS(28)) tape_status
 );
 
 wire [23:0] ov_rgb;
-tape_overlay #(.CHARS(28), .FACTOR(4'd4)) tape_overlay
+tape_overlay #(.CHARS(28), .FACTOR(4'd8)) tape_overlay
 (
 	.clk(clk_42),
 	.ce_pix(pixel_clock),

@@ -101,7 +101,7 @@ std::vector<int> osd_break_frames;  // --osd-break N: the OSD BREAK button
 std::vector<int> osd_shift_break_frames, osd_ctrl_break_frames;  // the OSD Shift-/Ctrl-BREAK buttons
 std::string tape_image;             // --tape: loaded over ioctl index 1 (OSD Tape)
 int  tape_at_frame = 0;
-bool opt_tape_fast = true;          // OSD Tape speed: 4x
+bool opt_tape_fast = true;          // OSD Tape speed: 8x
 bool opt_tape_overlay = true;
 bool trace_tape = false;
 bool sloppy_shift = false;          // --sloppy-shift: let go of Shift before the key it shifts
@@ -532,7 +532,7 @@ static void usage(const char* argv0)
 	"  --trace-audio              per frame: range and change count of AUDIO_L\n"
 	"  --tape <file.uef>          load a tape (OSD Tape, ioctl index 1) at start\n"
 	"  --tape-at N                load the --tape image at frame N instead\n"
-	"  --tape-speed 4x|normal     OSD Tape speed (default 4x)\n"
+	"  --tape-speed 8x|normal     OSD Tape speed (default 8x)\n"
 	"  --tape-overlay on|off      OSD Tape overlay (default on)\n"
 	"  --rewind-at N[,N,...]      press OSD Rewind tape at these frames\n"
 	"  --trace-tape               print deck state changes\n"

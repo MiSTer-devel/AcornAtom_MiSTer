@@ -9,23 +9,26 @@ as `~/dev2/tape-standard.md` asks each core to keep. Dates are 2026-11-08.
 |---|---|
 | Deck plays | No motor relay on the Atom: the deck plays while the CPU runs the kernel's tape-read code (FB8A-FC37, FCBD-FCD7; 64 accesses with no gap over 1 ms to start, 250 ms hold) |
 | Timebase | The core's 2.4 kHz tone tick, 208 CPU cycles apart at every CPU speed, as on the real machine (4 MHz / 13 / 64 against 1 MHz); 16 ticks a bit |
-| Turbo | 4x: the CPU at 4 MHz and the tick with it, only while the deck plays. 8x is available in the clock divider but not used: 4x is what was tested |
+| Turbo | 8x: the CPU at 8 MHz and the tick with it, only while the deck plays (the clock divider's fastest step; was 4x until 2026-11-09) |
 | Quick start | None: the Atom has no boot path that runs before the tape |
 | Next-step hint | Yes, from the block headers: each file's command in turn, RUN after a BASIC file (see README) |
 | Formats | UEF, plain or gzipped (expanded as it downloads, `rtl/gunzip.sv`), chunks &0100 &0104 &0110 &0111 &0112. CSW 1.01 and 2.0, RLE or Z-RLE: demodulated as it downloads into a UEF of &0110 and &0100 chunks (`rtl/csw_in.sv`), so only 300-baud Atom recordings |
 
 ## Load times
 
-| Tape | Kind | Tape length | 4x, measured | Where |
+| Tape | Kind | Tape length | Turbo, measured | Where |
 |---|---|---|---|---|
-| BBALL | BASIC, 1 block | 0:16 | 3.9 s (237 frames, deck start to stop) | simulator |
-| BBALL | | | about 4 s | mister192 |
+| BBALL at 8x | BASIC, 1 block | 0:16 | 2.05 s (123 frames, deck start to stop) | simulator |
+| BBALL at 4x (before) | | | 3.9 s (237 frames) | simulator |
+| BBALL at 4x (before) | | | about 4 s | mister192 |
 | BBALL at Normal | | | 14.7 s (883 frames, deck start to stop) | simulator |
 | BBALL at Normal | | | under 30 s from the key at PLAY TAPE; the counter read 0:06 six seconds in (no x4 shown) | mister192 |
-| ASTEROIDS | machine code, 11 blocks | 2:19 | about 35 s | mister192 |
+| ASTEROIDS at 8x | machine code, 11 blocks | 2:19 | about 16 s (the counter at 2:14 15 s after the key) | mister192 |
+| ASTEROIDS at 4x (before) | | | about 35 s | mister192 |
 
-Turbo cuts the BBALL load from 14.7 s to 3.9 s, 3.7 times (the deck's start and its 250 ms
-run-on are not sped up).
+8x cuts the BBALL load from 14.7 s to 2.05 s, 7.2 times (the deck's start and its 250 ms
+run-on are not sped up). 8x on mister192: ASTEROIDS (its score table), HILO then BBALL
+from one tape (both run), 3DMAZE (runs); in the simulator every tape scenario passes.
 
 ## Corpus
 
@@ -78,7 +81,7 @@ print what to type next (Defender: "NOW LOAD MAIN PROGRAM"; Labyrinth:
   instead, and every block's checksum is right.
 - Simulator: BBALL as a CSW: the same hint and the same whole load as the UEF.
 - mister192: ASTEROIDS as a CSW (2.0 Z-RLE, from the archive UEF): the hint,
-  F11, `*RUN"ASTEROIDS"`, the 4x load, the game. A .csw downloads as index 65,
+  F11, `*RUN"ASTEROIDS"`, the 4x load (before 8x), the game. A .csw downloads as index 65,
   not 1: with two extensions on one F entry Main puts the extension's number in
   `ioctl_index[7:6]`, so the deck matches `[5:0]`.
 

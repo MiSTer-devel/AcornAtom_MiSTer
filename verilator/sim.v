@@ -262,7 +262,7 @@ tape_status #(.CHARS(28)) tape_status (
 );
 
 wire [23:0] ov_rgb;
-tape_overlay #(.CHARS(28), .FACTOR(4'd4)) tape_overlay (
+tape_overlay #(.CHARS(28), .FACTOR(4'd8)) tape_overlay (
 	.clk(clk_42), .ce_pix(CE_PIXEL), .hblank(hblank), .vblank(vblank), .enable(tape_overlay_en),
 	.status(tape_stat), .req(tape_req), .ack(tape_ack),
 	.rgb_in({r[1], r[1], r[1], r[0], r[0], r[0], r, g[1], g[1], g[1], g[0], g[0], g[0], g, b[1], b[1], b[1], b[0], b[0], b[0], b}),

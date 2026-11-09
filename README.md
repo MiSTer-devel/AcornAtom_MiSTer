@@ -12,7 +12,7 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
 * System Roms with mmc (to access the SD card)
 * Seven additional Roms and 1 slot of ram to download additional Rom.
 * Two character sets.
-* Tape: UEF images (plain or gzipped) from the OSD (Tape), played at 4x with a status bar and a hint that says what to type; tape input through the MiSTer's ADC too
+* Tape: UEF images (plain or gzipped) from the OSD (Tape), played at 8x with a status bar and a hint that says what to type; tape input through the MiSTer's ADC too
 * Sound is mixed: the speaker, the SID and the tape tone, each with an on/off switch
 * Black or Dark background
 * Atom or BBC Basic mode
@@ -48,7 +48,7 @@ the box in the bottom-left corner says what to do, read from the tape itself:
    `*LOAD"NAME"` for a data file (a loading screen, a menu page); then press any
    key at PLAY TAPE.
 3. The deck plays (the Atom has no motor relay: it plays while the kernel reads
-   the tape) at 4x with a status bar, then stops. A BASIC program ends with
+   the tape) at 8x with a status bar, then stops. A BASIC program ends with
    `TYPE RUN`.
 4. On a tape with more files (instructions, then the game; a title screen, then
    the game), the box then shows the next file's command, once RUN has been

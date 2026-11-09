@@ -5,7 +5,7 @@
 //
 //  While the deck plays, the bottom-left corner of the picture shows
 //
-//      TAPE > 0:09/ 1:42 x4
+//      TAPE > 0:09/ 1:42 x8
 //      [=========----------]
 //
 //  elapsed/total tape time (the tape's own 300 baud timebase: 4808 ticks of
@@ -193,7 +193,7 @@ endmodule
 
 module tape_overlay #(
 	parameter integer CHARS = 28,
-	parameter [3:0]   FACTOR = 4'd4          // shown as "x4" while turbo is on
+	parameter [3:0]   FACTOR = 4'd8          // shown as "x8" while turbo is on
 )(
 	input                      clk,          // video clock
 	input                      ce_pix,

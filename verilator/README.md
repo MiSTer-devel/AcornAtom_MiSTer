@@ -44,7 +44,7 @@ the working directory.
 | `--watch-pc ADDR[,...]` | count CPU accesses to addresses |
 | `--trace-cpu`, `--trace-cpu-from N`, `--trace-cpu-to N` | every CPU bus cycle |
 | `--trace-sd`, `--trace-key` | SD chip select, PS/2 events |
-| `--tape <f.uef>`, `--tape-at N`, `--tape-speed 4x\|normal`, `--tape-overlay on\|off`, `--rewind-at N`, `--trace-tape` | the tape deck (OSD Tape, ioctl index 1) |
+| `--tape <f.uef>`, `--tape-at N`, `--tape-speed 8x\|normal`, `--tape-overlay on\|off`, `--rewind-at N`, `--trace-tape` | the tape deck (OSD Tape, ioctl index 1) |
 | `--osd-shift-break N`, `--osd-ctrl-break N`, `--sloppy-shift` | the OSD Shift-/Ctrl-BREAK buttons; release Shift before the key it shifts |
 | `tools/dis6502.py atom192k.hex FROM TO` | disassemble the ROM image |
 
@@ -61,7 +61,7 @@ shifted key depends on the OSD layout, exactly as on the hardware.
 | cat | `*CAT` on `../software/mister11/boot.vhd` lists the directory (golden image; skipped without the VHD) |
 | sid, sid4 | a voice gated from BASIC moves the audio output at 1 MHz and in 4 MHz turbo (`--trace-audio` log) |
 | hint_basic, hint_code, hint_data | the tape hint for BBALL (`LOAD`), ASTEROIDS (`*RUN`) and a loading screen (`*LOAD`) at frame 50 |
-| tape_bball | F11, `LOAD"BBALL"`, a key at PLAY TAPE: the 4x load ends at the prompt with `TYPE RUN` (frame 580) |
+| tape_bball | F11, `LOAD"BBALL"`, a key at PLAY TAPE: the 8x load ends at the prompt with `TYPE RUN` (frame 580) |
 | hint_gz | BBALL gzipped: the same picture as hint_basic (`GOLDEN=hint_basic`) |
 | hint_csw, tape_csw | BBALL written as a CSW by `tools/uef2csw.py`: the same pictures as hint_basic and tape_bball |
 | tape_multi_next, tape_multi_run | HILO and BBALL joined into one tape: after `LOAD"HILO"` and RUN the hint shows `LOAD"BBALL"` over HILO (frame 1000); ESCAPE, `LOAD"BBALL"`: `TYPE RUN` (frame 1600) |

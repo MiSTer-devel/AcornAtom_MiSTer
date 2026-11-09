@@ -63,7 +63,7 @@ module atom_tape #(
 	input      [15:0] cpu_addr,              // the CPU's address bus ...
 	input             cpu_ce,                // ... on its clock enable
 	input             rewind,                // OSD Rewind tape (level, rising edge acts)
-	input             fast_sel,              // OSD Tape speed: 4x (taken when the deck starts)
+	input             fast_sel,              // OSD Tape speed: 8x (taken when the deck starts)
 
 	output reg        level,                 // to the cassette input
 	output            loaded,

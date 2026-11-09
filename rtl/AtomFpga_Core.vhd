@@ -36,7 +36,7 @@ entity AtomFpga_Core is
 		  computer 			 : in    std_logic;
         turbo_default    : in    std_logic_vector(1 downto 0) := "00"; -- CPU speed at reset (OSD)
         osd_break        : in    std_logic := '0';  -- BREAK from the OSD (level; hold it a few ms)
-        tape_turbo       : in    std_logic := '0';  -- the tape deck plays fast: CPU at 4 MHz at least
+        tape_turbo       : in    std_logic := '0';  -- the tape deck plays fast: CPU at 8 MHz
         osd_shift        : in    std_logic := '0';  -- OSD Shift-BREAK: SHIFT held down (8255 PB7)
         osd_ctrl         : in    std_logic := '0';  -- OSD Ctrl-BREAK: CTRL held down (8255 PB6)
         cas_tick         : out   std_logic;         -- one clk_main per 2.4 kHz half cycle (scales with the CPU speed)
@@ -919,9 +919,9 @@ end process;
             
 
             if clk_counter = limit then
-                -- only change the timing at the end of the cycle; a playing tape asks for 4 MHz
-                if tape_turbo = '1' and key_turbo(1) = '0' then
-                    turbo_synced <= "10";
+                -- only change the timing at the end of the cycle; a playing tape asks for 8 MHz
+                if tape_turbo = '1' then
+                    turbo_synced <= "11";
                 else
                     turbo_synced <= key_turbo;
                 end if;
