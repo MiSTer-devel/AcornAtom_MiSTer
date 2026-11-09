@@ -8,7 +8,7 @@
 //
 //  Differences from AcornAtom.sv, all deliberate:
 //    * clk_42 and clk_32 come from C++ (two independent schedulers, so their
-//      relationship is the hardware's: 42.954545 and 31.5 MHz);
+//      relationship is the hardware's: 42.954545 and 32 MHz);
 //    * the 192 KB ROM/RAM is a $readmemh array (atom192k.hex from the mif);
 //    * the HPS side of sys/sd_card.sv is driven by sim_main.cpp's block device;
 //    * no physical SD card: its MISO is tied high (no card present);
@@ -233,7 +233,7 @@ wire  [7:0] tape_info;
 wire tape_wait;
 assign ioctl_wait = tape_wait;
 
-atom_tape #(.CLK_HZ(31_500_000)) atom_tape (
+atom_tape #(.CLK_HZ(32_000_000)) atom_tape (
 	.clk(clk_32), .reset(reset),
 	.dl_in(ioctl_download && ioctl_index[5:0] == 6'd1), .wr_in(ioctl_wr), .addr_in(ioctl_addr), .data_in(ioctl_dout), .dl_wait(tape_wait),
 	.tick(cas_tick), .cpu_addr(cpu_addr), .cpu_ce(cpu_clken),

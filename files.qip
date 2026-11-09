@@ -74,6 +74,10 @@
 
 	set_global_assignment -name VHDL_FILE rtl/AtomFpga_Core.vhd
 	set_global_assignment -name SYSTEMVERILOG_FILE AcornAtom.sv
+	set_global_assignment -name VERILOG_FILE rtl/pll_cpu.v
+	set_instance_assignment -name PLL_COMPENSATION_MODE DIRECT -to "*pll_cpu*|altera_pll:altera_pll_i*|*"
+	set_instance_assignment -name PLL_AUTO_RESET ON -to "*pll_cpu*|altera_pll:altera_pll_i*|*"
+	set_instance_assignment -name PLL_BANDWIDTH_PRESET AUTO -to "*pll_cpu*|altera_pll:altera_pll_i*|*"
 	set_global_assignment -name SDC_FILE AcornAtom.sdc
 	set_global_assignment -name SYSTEMVERILOG_FILE rtl/gunzip.sv
 	set_global_assignment -name SYSTEMVERILOG_FILE rtl/csw_in.sv

@@ -39,7 +39,7 @@
 //============================================================================
 
 module atom_tape #(
-	parameter integer CLK_HZ = 31_500_000,
+	parameter integer CLK_HZ = 32_000_000,
 	parameter integer AW     = 17,           // 128 KB of tape
 	// The kernel's tape-read code, where the deck plays: the header search and
 	// byte reader FB8A-FC37 (Splitting the Atom: OSBGET at FBEE-FC2A) and the

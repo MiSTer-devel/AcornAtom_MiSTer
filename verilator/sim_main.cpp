@@ -50,11 +50,10 @@
 // The two PLL clocks of the hardware, in picoseconds per half period.
 //   clk_42: 42.954545 MHz (3 x the NTSC colour burst; the 6847 runs on an
 //           enable at 14.318 MHz, its half-dots at 7.159 MHz)
-//   clk_32: 31.5 MHz on the hardware (945 MHz VCO / 30: the CPU enable from
-//           it is 0.984 MHz, 1.6% slow; see AcornAtom.sdc and the handoff).
+//   clk_32: 32 MHz (rtl/pll_cpu.v: the CPU enable from it is 1 MHz).
 // They are scheduled independently, so their relationship is the hardware's.
 static const uint64_t HALF_42 = 11640;   // 23280 ps
-static const uint64_t HALF_32 = 15873;   // 31746 ps
+static const uint64_t HALF_32 = 15625;   // 31250 ps
 static const double   CLK32_HZ = 1e12 / (2.0 * HALF_32);
 
 // Power-on reset: 300 us. The AVR8's reset generator and the 6502 reset

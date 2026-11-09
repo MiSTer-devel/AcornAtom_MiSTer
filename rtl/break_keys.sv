@@ -13,7 +13,7 @@
 // the kernel sees it however quickly the keys are let go.
 module break_keys
 (
-	input             clk_sys,          // 31.5 MHz (the hold times are counted in it)
+	input             clk_sys,          // 32 MHz (the hold times are counted in it)
 	input             btn_break,        // OSD buttons (status bits, levels)
 	input             btn_shift_break,
 	input             btn_ctrl_break,

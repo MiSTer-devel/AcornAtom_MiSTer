@@ -470,8 +470,8 @@ begin
                 audio_data => sid_audio_d 
             );
 
-        -- SID clock: a free-running 1 MHz enable from clk_main (31.5 MHz / 32 =
-        -- 0.984 MHz, the same rate as the 1x CPU). It used to be clk_counter(4),
+        -- SID clock: a free-running 1 MHz enable from clk_main (32 MHz / 32 =
+        -- 1 MHz, the same rate as the 1x CPU). It used to be clk_counter(4),
         -- which only toggles at 1x, so the SID stopped dead in turbo, and it was
         -- used as a clock rather than an enable.
         process (clk_main)

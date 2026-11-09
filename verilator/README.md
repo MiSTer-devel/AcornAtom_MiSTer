@@ -72,7 +72,7 @@ Each scenario takes a few minutes; `./run_tests.sh boot` runs one.
 
 ## Clocks and timing
 
-`clk_42` (42.954545 MHz, the 6847 side) and `clk_32` (31.5 MHz, the CPU side)
+`clk_42` (42.954545 MHz, the 6847 side) and `clk_32` (32 MHz, the CPU side)
 are scheduled independently in picoseconds, so their relationship is the
 hardware's. The 6847 line is 456 half-dots (228 chroma clocks, 63.7 us) and
 the frame 262 lines, 59.92 Hz, so frame numbers mean the same thing as on

@@ -99,23 +99,28 @@ parameter CONF_STR = {
 };
 
 /////////////////  CLOCKS  ////////////////////////
+// clk_42 (42.954545 MHz) runs the 6847; clk_32 (exactly 32 MHz) runs the
+// CPU side, divided by 32 for the Atom's 1 MHz. They come from two PLLs:
+// one integer VCO cannot make both (rtl/pll_cpu.v). rtl/pll's other two
+// outputs (31.5 and 16 MHz, the old CPU clock and an unused one) are left
+// unconnected.
 wire clk_main = clk_sys;
 wire clk_sys = clk_32;
-//wire clk_100;
-wire clk_16;
 wire clk_32;
-//wire clk_25;
 wire clk_42;
-wire pll_locked;
 
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_42),
-	.outclk_1(clk_32),
-	.outclk_2(clk_16)
+	.outclk_0(clk_42)
+);
 
+pll_cpu pll_cpu
+(
+	.refclk(CLK_50M),
+	.rst(0),
+	.outclk_0(clk_32)
 );
 
 reg clk_14M318_ena ;
@@ -369,7 +374,6 @@ AtomFpga_Core AcornAtom
 	.clk_vid_en(clk_14M318_ena),
 	.clk_main(clk_main),
 	.clk_dac(clk_sys),  // -2.202 setup slack
-	//.clk_avr(clk_16), // -4.98 setup slack -- this is to fix SD Card problem
 	.clk_avr(clk_main), // this helps timing
 	
 	.pixel_clock(pixel_clock),
@@ -504,7 +508,7 @@ wire [103:0] tape_hdr_name;
 wire  [3:0] tape_hdr_len;
 wire [15:0] tape_hdr_exec, tape_hdr_load, tape_file_lo;
 wire [16:0] tape_file_hi;
-atom_tape #(.CLK_HZ(31_500_000)) atom_tape
+atom_tape #(.CLK_HZ(32_000_000)) atom_tape
 (
 	.clk(clk_sys),
 	.reset(reset),
