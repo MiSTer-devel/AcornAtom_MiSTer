@@ -21,6 +21,7 @@ as `~/dev2/tape-standard.md` asks each core to keep. Dates are 2026-11-08.
 | BBALL | BASIC, 1 block | 0:16 | 3.9 s (237 frames, deck start to stop) | simulator |
 | BBALL | | | about 4 s | mister192 |
 | BBALL at Normal | | | 14.7 s (883 frames, deck start to stop) | simulator |
+| BBALL at Normal | | | under 30 s from the key at PLAY TAPE; the counter read 0:06 six seconds in (no x4 shown) | mister192 |
 | ASTEROIDS | machine code, 11 blocks | 2:19 | about 35 s | mister192 |
 
 Turbo cuts the BBALL load from 14.7 s to 3.9 s, 3.7 times (the deck's start and its 250 ms
@@ -81,5 +82,9 @@ print what to type next (Defender: "NOW LOAD MAIN PROGRAM"; Labyrinth:
   not 1: with two extensions on one F entry Main puts the extension's number in
   `ioctl_index[7:6]`, so the deck matches `[5:0]`.
 
-Not yet: Normal speed and Rewind on hardware, SAVE (the tape output goes to the
-audio only), the hint over the whole corpus by loading.
+- mister192: Tape speed Normal (BBALL in real time, no x4 on the bar, then
+  `TYPE RUN`); Rewind tape after the load (the hint back to `TYPE LOAD"BBALL"`,
+  and a second LOAD from the start runs the game).
+
+Not yet: SAVE (the tape output goes to the audio only), the hint over the whole
+corpus by loading.
