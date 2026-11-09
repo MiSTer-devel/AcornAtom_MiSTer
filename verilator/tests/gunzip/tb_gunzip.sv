@@ -17,7 +17,7 @@ always @(posedge clk) begin
 	if (out_wr && out_addr < (1 << AW)) mem[out_addr[AW-1:0]] <= out_data;
 	rd_data <= mem[rd_addr];
 end
-gunzip #(.AW(AW)) dut(.clk(clk), .start(start), .in_wr(in_wr), .in_data(in_data), .in_end(in_end),
+gunzip #(.AW(AW)) dut(.clk(clk), .start(start), .raw(1'b0), .stall(1'b0), .in_wr(in_wr), .in_data(in_data), .in_end(in_end),
 	.in_wait(in_wait), .out_wr(out_wr), .out_addr(out_addr), .out_data(out_data),
 	.rd_addr(rd_addr), .rd_data(rd_data), .busy(busy), .gz(gz), .err(err));
 reg [24:0] n = 0;

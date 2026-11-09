@@ -63,8 +63,10 @@ shifted key depends on the OSD layout, exactly as on the hardware.
 | hint_basic, hint_code, hint_data | the tape hint for BBALL (`LOAD`), ASTEROIDS (`*RUN`) and a loading screen (`*LOAD`) at frame 50 |
 | tape_bball | F11, `LOAD"BBALL"`, a key at PLAY TAPE: the 4x load ends at the prompt with `TYPE RUN` (frame 580) |
 | hint_gz | BBALL gzipped: the same picture as hint_basic (`GOLDEN=hint_basic`) |
+| hint_csw, tape_csw | BBALL written as a CSW by `tools/uef2csw.py`: the same pictures as hint_basic and tape_bball |
 | tape_multi_next, tape_multi_run | HILO and BBALL joined into one tape: after `LOAD"HILO"` and RUN the hint shows `LOAD"BBALL"` over HILO (frame 1000); ESCAPE, `LOAD"BBALL"`: `TYPE RUN` (frame 1600) |
 | gunzip | `tests/gunzip/run.sh`: `rtl/gunzip.sv` alone in a small testbench; every UEF under `../software` expanded with and without download stalls, compared with Python's gzip (seconds) |
+| csw | `tests/csw/run.sh`: `rtl/csw_in.sv` alone; every archive UEF written as a CSW three ways (2.0 Z-RLE, 2.0 RLE, 1.01) and read back, with and without download stalls; the UEF's bytes must come back. A `.csw` argument is checked against `csw_ref.py` instead (a minute or two) |
 
 Each scenario takes a few minutes; `./run_tests.sh boot` runs one.
 

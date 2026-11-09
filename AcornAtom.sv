@@ -59,7 +59,7 @@ parameter CONF_STR = {
 	"AcornAtom;;",
 	"-;",
 	"SC0,VHD,Pri. disk (SD);",
-	"F1,UEF,Tape;",
+	"F1,UEFCSW,Tape;",
 	"F0,ROM,Load ROM;",
 	"-;",
 	"P1,Machine;",
@@ -508,7 +508,9 @@ atom_tape #(.CLK_HZ(31_500_000)) atom_tape
 (
 	.clk(clk_sys),
 	.reset(reset),
-	.dl_in(ioctl_download && ioctl_index == 8'd1),
+	// [7:6] is which extension of "UEFCSW" the file matched (Main does that
+	// when an F entry lists several)
+	.dl_in(ioctl_download && ioctl_index[5:0] == 6'd1),
 	.wr_in(ioctl_wr),
 	.addr_in(ioctl_addr),
 	.data_in(ioctl_dout),

@@ -235,7 +235,7 @@ assign ioctl_wait = tape_wait;
 
 atom_tape #(.CLK_HZ(31_500_000)) atom_tape (
 	.clk(clk_32), .reset(reset),
-	.dl_in(ioctl_download && ioctl_index == 8'd1), .wr_in(ioctl_wr), .addr_in(ioctl_addr), .data_in(ioctl_dout), .dl_wait(tape_wait),
+	.dl_in(ioctl_download && ioctl_index[5:0] == 6'd1), .wr_in(ioctl_wr), .addr_in(ioctl_addr), .data_in(ioctl_dout), .dl_wait(tape_wait),
 	.tick(cas_tick), .cpu_addr(cpu_addr), .cpu_ce(cpu_clken),
 	.rewind(tape_rewind), .fast_sel(tape_fast_sel),
 	.level(tape_level), .loaded(tape_loaded), .playing(tape_playing), .turbo(tape_turbo),

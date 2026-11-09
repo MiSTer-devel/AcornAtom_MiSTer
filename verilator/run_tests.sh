@@ -85,6 +85,13 @@ if [ -f "$U/BBALL.uef" ] && [ -f "$U/ASTEROID.uef" ]; then
 		python3 -I -c "import gzip,sys; open(sys.argv[2],'wb').write(gzip.compress(open(sys.argv[1],'rb').read()))" \
 			"$U/BBALL.uef" "$OUT/BBALL.uef.gz" && GOLDEN=hint_basic run hint_gz 50 --layout us --tape "$OUT/BBALL.uef.gz"
 	fi
+	# A CSW (rtl/csw_in.sv reads it back into bytes as it downloads), made from
+	# BBALL.uef by tools/uef2csw.py: the same hint, and the same whole load.
+	if [ -z "$only" ] || [[ hint_csw == "$only"* ]] || [[ tape_csw == "$only"* ]]; then
+		python3 -I ../tools/uef2csw.py "$U/BBALL.uef" "$OUT/BBALL.csw"
+		GOLDEN=hint_basic run hint_csw 50 --layout us --tape "$OUT/BBALL.csw"
+		GOLDEN=tape_bball run tape_csw 580 --layout us --tape "$OUT/BBALL.csw" --send-keys '60:\C' --send-keys '130:LOAD"BBALL"\n' --send-keys '260: '
+	fi
 	# Two files on one tape (HILO, then BBALL; rule 26 of the tape standard):
 	# LOAD"HILO", RUN; with HILO running the hint moves on to the next file
 	# (frame 1000); ESCAPE, LOAD"BBALL"; the RUN hint for BBALL (frame 1600).
@@ -110,6 +117,19 @@ if [ -z "$only" ] || [[ gunzip == "$only"* ]]; then
 		fi
 	else
 		echo "SKIP gunzip (no ../software)"
+	fi
+fi
+# The CSW reader on its own (tests/csw): every UEF under ../software written as
+# a CSW three ways and read back, with and without input stalls.
+if [ -z "$only" ] || [[ csw == "$only"* ]]; then
+	if [ -d ../software ]; then
+		if r=$(find "$PWD/../software" -iname '*.uef' -not -path '*commercial*' -print0 | xargs -0 tests/csw/run.sh); then
+			echo "PASS csw (${r##*csw: })"
+		else
+			echo "FAIL csw"; echo "$r" | grep FAIL | head; fail=1
+		fi
+	else
+		echo "SKIP csw (no ../software)"
 	fi
 fi
 exit $fail

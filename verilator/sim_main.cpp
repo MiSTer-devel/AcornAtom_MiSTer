@@ -439,8 +439,12 @@ static void mount_vhd()
 
 static void queue_tape()
 {
-	printf("Loading tape: %s (ioctl index 1)\n", tape_image.c_str());
-	bus.QueueDownload(tape_image, 1, true);
+	// As Main does for "F1,UEFCSW": the matched extension's number in [7:6]
+	std::string ext = tape_image.size() > 4 ? tape_image.substr(tape_image.size() - 4) : "";
+	for (auto &c : ext) c = tolower(c);
+	int index = 1 | (ext == ".csw" ? 1 << 6 : 0);
+	printf("Loading tape: %s (ioctl index %d)\n", tape_image.c_str(), index);
+	bus.QueueDownload(tape_image, index, true);
 }
 
 static bool frame_actions(int frame)

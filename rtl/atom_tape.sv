@@ -7,8 +7,10 @@
 //  says), &0110 (carrier: cycles of 2400 Hz), &0111 (carrier, &AA, carrier),
 //  &0112 (gap, n/600 s). Others (&0000 origin, &0117 baud, which is always
 //  300 on the Atom) are skipped. A gzipped UEF (most UEF collections are) is
-//  expanded as it downloads (rtl/gunzip.sv). Anything else reports "Tape
-//  format not supported"; more than 128 KB expanded "Tape too large".
+//  expanded as it downloads (rtl/gunzip.sv). A CSW (v1/v2, RLE or Z-RLE) is
+//  read back into bytes as it downloads and stored as a UEF (rtl/csw_in.sv).
+//  Anything else reports "Tape format not supported"; more than 128 KB
+//  expanded "Tape too large".
 //
 //  Timebase. The Atom's cassette is CUTS at 300 baud: a 1 is eight cycles of
 //  2400 Hz, a 0 four cycles of 1200 Hz. Both are made from `tick`, the core's
@@ -109,16 +111,36 @@ reg  [7:0] mem [0:(1 << AW) - 1];
 reg  [AW-1:0] rd_addr;
 reg  [7:0] rd_data;
 
+// A CSW (its first byte is the "C" of "Compressed Square Wave") goes to the
+// CSW reader instead, which writes the bytes it finds on it as a UEF.
+reg         csw_r;
+wire        first = dl_in && wr_in && addr_in == 25'd0;
+wire        csw = first ? data_in == 8'h43 : csw_r;
+always @(posedge clk) if (dl_in && !dl_d) csw_r <= 1'b0; else if (first) csw_r <= data_in == 8'h43;
+
+wire        gz_wait, cs_wait, cs_wr, cs_busy, cs_err;
+wire [24:0] cs_addr;
+wire  [7:0] cs_data;
+
 gunzip #(.AW(AW)) gunzip (
-	.clk(clk), .start(dl_in && !dl_d), .in_wr(dl_in && wr_in), .in_data(data_in), .in_end(!dl_in),
-	.in_wait(dl_wait),
+	.clk(clk), .start(dl_in && !dl_d), .raw(1'b0), .stall(1'b0),
+	.in_wr(dl_in && wr_in && !csw), .in_data(data_in), .in_end(!dl_in),
+	.in_wait(gz_wait),
 	.out_wr(gz_wr), .out_addr(gz_addr), .out_data(gz_data), .rd_addr(gz_ra), .rd_data(rd_data),
 	.busy(gz_busy), .gz(gz_gz), .err(gz_err)
 );
-wire        dl   = dl_in || gz_busy;
-wire        wr   = gz_wr;
-wire [24:0] addr = gz_addr;
-wire  [7:0] data = gz_data;
+csw_in csw_in (
+	.clk(clk), .start(dl_in && !dl_d), .in_wr(dl_in && wr_in && csw), .in_data(data_in), .in_end(!dl_in),
+	.in_wait(cs_wait),
+	.out_wr(cs_wr), .out_addr(cs_addr), .out_data(cs_data),
+	.busy(cs_busy), .err(cs_err)
+);
+assign      dl_wait = csw ? cs_wait : gz_wait;
+wire        dl   = dl_in || gz_busy || (csw_r && cs_busy);
+wire        wr   = csw_r ? cs_wr : gz_wr;
+wire [24:0] addr = csw_r ? cs_addr : gz_addr;
+wire  [7:0] data = csw_r ? cs_data : gz_data;
+wire        bad_image = gz_err || (csw_r && cs_err);
 
 always @(posedge clk) begin
 	if (wr && addr < (25'd1 << AW)) mem[addr[AW-1:0]] <= data;
@@ -357,9 +379,9 @@ always @(posedge clk) begin
 	end
 	if (!dl && old_dl) begin
 		if (p_valid) begin prev_was_last(); p_valid <= 1'b0; end   // the tape's last block
-		valid <= p_state != 4'd15 && !too_big && len > 25'd12 && !gz_err;
+		valid <= p_state != 4'd15 && !too_big && len > 25'd12 && !bad_image;
 		info_req <= 1'b1;
-		info <= too_big ? 8'd3 : (p_state == 4'd15 || len <= 25'd12 || gz_err) ? 8'd2 : 8'd1;
+		info <= too_big ? 8'd3 : (p_state == 4'd15 || len <= 25'd12 || bad_image) ? 8'd2 : 8'd1;
 	end
 end
 

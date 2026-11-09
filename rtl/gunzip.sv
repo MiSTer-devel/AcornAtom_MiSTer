@@ -13,7 +13,9 @@
 //  DEFLATE (RFC 1951) as zlib's puff.c does it: canonical Huffman codes
 //  decoded a bit a clock against per-length counts, stored, fixed and
 //  dynamic blocks. gzip (RFC 1952): the header with its optional fields is
-//  skipped; the trailer (CRC-32, size) is not checked.
+//  skipped; the trailer (CRC-32, size) is not checked. With `raw` it starts at
+//  the first DEFLATE block (a zlib stream whose two header bytes the caller
+//  has taken off: the CSW reader). `stall` holds the decoder where it is.
 //============================================================================
 
 module gunzip #(
@@ -21,6 +23,8 @@ module gunzip #(
 )(
 	input             clk,
 	input             start,                 // a download begins
+	input             raw,                   // with start: the input is bare DEFLATE (zlib's body)
+	input             stall,                 // hold the output (the consumer is busy)
 	input             in_wr,
 	input       [7:0] in_data,
 	input             in_end,                // the download is over (level)
@@ -125,11 +129,11 @@ always @(posedge clk) begin
 	push = in_wr;
 
 	if (start) begin
-		run <= 1'b1; st <= M_IDLE; gz <= 1'b0; err <= 1'b0;
+		run <= 1'b1; st <= raw ? BLK : M_IDLE; gz <= raw; err <= 1'b0;
 		f_wp <= 0; f_rp <= 0; f_n <= 0; push = 1'b0;
 		bb <= 0; bc <= 0; opos <= 0;
 	end
-	else begin
+	else if (!stall) begin
 		case (st)
 		M_IDLE: if (f_n != 0) begin
 			if (fifo[f_rp] == 8'h1F) begin gz <= 1'b1; gi <= 0; st <= G_HDR; end

@@ -12,7 +12,7 @@ as `~/dev2/tape-standard.md` asks each core to keep. Dates are 2026-11-08.
 | Turbo | 4x: the CPU at 4 MHz and the tick with it, only while the deck plays. 8x is available in the clock divider but not used: 4x is what was tested |
 | Quick start | None: the Atom has no boot path that runs before the tape |
 | Next-step hint | Yes, from the block headers: each file's command in turn, RUN after a BASIC file (see README) |
-| Formats | UEF, plain or gzipped (expanded as it downloads, `rtl/gunzip.sv`), chunks &0100 &0104 &0110 &0111 &0112. Not CSW |
+| Formats | UEF, plain or gzipped (expanded as it downloads, `rtl/gunzip.sv`), chunks &0100 &0104 &0110 &0111 &0112. CSW 1.01 and 2.0, RLE or Z-RLE: demodulated as it downloads into a UEF of &0110 and &0100 chunks (`rtl/csw_in.sv`), so only 300-baud Atom recordings |
 
 ## Load times
 
@@ -68,6 +68,18 @@ print what to type next (Defender: "NOW LOAD MAIN PROGRAM"; Labyrinth:
   ESCAPE, `LOAD"BBALL"`, `TYPE RUN`, the game.
 - mister192: a gzipped BBALL (the download paced by `ioctl_wait`): the hint,
   the load, the game.
+
+- CSW reader (`verilator/tests/csw`): the 61 archive UEFs, each written as CSW
+  2.0 Z-RLE, 2.0 RLE and 1.01 by `tools/uef2csw.py`, give back the UEF's bytes
+  exactly, with and without download stalls. The 14 distinct CSWs of the local
+  TOSEC set (all 2.0 Z-RLE at 44.1 kHz, Kees van Oss and Sloanysoft games, local
+  testing only) give the same bytes as a Python decoder that cuts by time
+  instead, and every block's checksum is right.
+- Simulator: BBALL as a CSW: the same hint and the same whole load as the UEF.
+- mister192: ASTEROIDS as a CSW (2.0 Z-RLE, from the archive UEF): the hint,
+  F11, `*RUN"ASTEROIDS"`, the 4x load, the game. A .csw downloads as index 65,
+  not 1: with two extensions on one F entry Main puts the extension's number in
+  `ioctl_index[7:6]`, so the deck matches `[5:0]`.
 
 Not yet: Normal speed and Rewind on hardware, SAVE (the tape output goes to the
 audio only), the hint over the whole corpus by loading.

@@ -35,8 +35,11 @@ A `games/AcornAtom/boot0.rom` is loaded at start if present (192 KB, same
 layout as the mif); Load ROM picks another image for the session.
 
 ## Tape
-Choose a `.uef` in the OSD's **Tape** row: plain or gzipped (the Atom Software
-Archive's UEFs are plain; most other collections gzip theirs), up to 128 KB expanded.
+Choose a `.uef` or `.csw` in the OSD's **Tape** row. A UEF can be plain or gzipped
+(the Atom Software Archive's UEFs are plain; most other collections gzip theirs), up
+to 128 KB expanded. A CSW (a recording of the tape's wave, 1.01 or 2.0, RLE or
+Z-RLE) is read back into the Atom's bytes as it downloads, so it behaves as a UEF;
+only standard Atom 300-baud recordings can be read that way.
 The AtoMMC ROM takes over LOAD and SAVE, so the tape needs the Atom without it:
 the box in the bottom-left corner says what to do, read from the tape itself:
 
@@ -63,8 +66,7 @@ blocks follow" flag set on their only block, so a real Atom's LOAD would wait fo
 a block that never comes. The deck corrects that flag, and the block checksum,
 as it plays such a block, and only when the tape has no next block of that file.
 
-Tape speed Normal plays at the real 300 baud. CSW is not supported (the OSD
-says "Tape format not supported").
+Tape speed Normal plays at the real 300 baud.
 
 ## Controls
 The PC layouts type what is printed on the PC key (US or UK keyboard). The Atom
