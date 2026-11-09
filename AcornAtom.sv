@@ -86,6 +86,7 @@ parameter CONF_STR = {
 	"P2O[19],Tape overlay,On,Off;",
 
 	"P3O[7:6],Keyboard layout,PC (US),PC (UK),Atom (original),Atom (game);",
+	"P3O[22],Swap Alt/Win keys,No,Yes;",
 
 	"P4O[4],Speaker,On,Off;",
 	"P4O[5],SID,On,Off;",
@@ -168,6 +169,18 @@ wire  [1:0] buttons;
 wire [15:0] joy1, joy2;
 
 wire [10:0] ps2_key;
+
+// Swap Alt/Win (OSD): Left Alt (#011) <-> Left Win (#11F), Right Alt (#111,
+// REPEAT) <-> Right Win (#127), for keyboards whose Alt key is out of reach
+// (a Mac keyboard's Cmd sends Win).
+wire [8:0] ps2_code = ps2_key[8:0];
+wire [8:0] ps2_code_sw =
+	!status[22]           ? ps2_code :
+	ps2_code == 9'h011    ? 9'h11F :
+	ps2_code == 9'h11F    ? 9'h011 :
+	ps2_code == 9'h111    ? 9'h127 :
+	ps2_code == 9'h127    ? 9'h111 : ps2_code;
+wire [10:0] ps2_key_core = {ps2_key[10:9], ps2_code_sw};
 wire [24:0] ps2_mouse;
 
 wire        ioctl_download;
@@ -362,7 +375,7 @@ AtomFpga_Core AcornAtom
 	.pixel_clock(pixel_clock),
 	
         // Keyboard
-	.ps2_key(ps2_key),
+	.ps2_key(ps2_key_core),
 	// OSD order PC (US), PC (UK), Atom (original), Atom (game); rtl/keyboard.sv's
 	// encoding is 0 UK, 1 US, 2 original, 3 game.
 	.layout(status[7:6] == 2'd0 ? 2'd1 : status[7:6] == 2'd1 ? 2'd0 : status[7:6]),

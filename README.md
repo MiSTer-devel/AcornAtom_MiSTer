@@ -72,6 +72,9 @@ layouts follow the Atom's own key positions.
 
 UK/US Keyboards - Shift lock is Caps, Repeat is right Alt, copy is tab - Left Alt is xtra shift key. 
 
+Input > Swap Alt/Win keys puts these two Alt functions on the Win keys (Cmd on a Mac
+keyboard), and the Alt keys then do nothing.
+
 The original keyboard had @ and up-arrow as separate keys these have moved to a PS2 config. 
 
 Up-Arrow is shift+6 so to "shift" this press left Alt+shift+6. 
