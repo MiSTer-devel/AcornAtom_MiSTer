@@ -44,6 +44,9 @@ Machine also has BREAK, Shift-BREAK and Ctrl-BREAK buttons, and the tape rows
 
 A `games/AcornAtom/boot0.rom` is loaded at start if present (192 KB, same
 layout as the mif); Load ROM picks another image for the session.
+`python3 roms/make_rom_image.py --bin boot0.rom` writes the core's own image in that
+format. The mif is built by the same script from the ROMs in `roms/src/` (sources and
+checksums in `roms/src/README.md`).
 
 ## Tape
 Choose a `.uef` or `.csw` in the OSD's **Tape** row. A UEF can be plain or gzipped
