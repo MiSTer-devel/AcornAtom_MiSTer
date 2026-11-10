@@ -69,6 +69,13 @@ if [ -z "$only" ] || [[ border_gfx == "$only"* ]]; then
 	fi
 fi
 run border_text 60 --border on
+# GODIL VGA80x40 (rtl/godil_vga80.sv): 640x480 interlaced, the sim weaves the
+# fields. #BDE0 bit 7 on its own shows the 32x16 BASIC screen's bytes as 80
+# columns (attributes off: green on black; unwritten RAM is "@"). Then the
+# real thing: FPGAUTIL (utility ROM bank 6) VGA80 clears to white on blue
+# with attributes and the hardware cursor, and BASIC prints through it.
+run vga80 230 --send-keys '60:?#BDE0=#80\n'
+run vga80_util 520 --send-keys '60:?#BFFF=6\n' --send-keys '190:VGA80\n' --send-keys '290:P."HELLO 80"\n'
 
 # AtoMMC: *CAT lists the VHD's root directory through sys/sd_card.sv.
 if [ -f ../software/mister11/boot.vhd ]; then

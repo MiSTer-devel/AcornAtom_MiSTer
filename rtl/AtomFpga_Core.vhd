@@ -61,6 +61,8 @@ entity AtomFpga_Core is
         hsync            : out   std_logic;
         vblank           : out   std_logic;
 		  hblank           : out   std_logic;
+        field            : out   std_logic;  -- VGA80 interlace: 1 = top field (VGA_F1); 1 otherwise
+        vga80_on         : out   std_logic;  -- VGA80x40 is on the screen (clk_vid)
 		  
         -- External 6502 bus interface
         ExternWE         : out   std_logic;
@@ -180,6 +182,18 @@ architecture BEHAVIORAL of AtomFpga_Core is
     signal ptr_s0, ptr_s1 : std_logic_vector (21 downto 0); -- {on, image, x, y} into clk_vid
     signal vid_addr : std_logic_vector (12 downto 0);
     signal vid_data : std_logic_vector (7 downto 0);
+    -- GODIL VGA80x40 (#BDE0 bit 7, rtl/godil_vga80.sv): 640x480 interlaced
+    signal ocrx, ocry   : std_logic_vector (7 downto 0);  -- #BDE2/#BDE3 cursor column/row
+    signal octl, octl2  : std_logic_vector (7 downto 0);  -- #BDE4/#BDE5 control
+    signal vga80_s      : std_logic_vector (1 downto 0);  -- bit 7 synchronised to clk_vid
+    signal vga80        : std_logic;
+    signal mc_vid_addr  : std_logic_vector (12 downto 0);
+    signal mc_char_a    : std_logic_vector (11 downto 0);
+    signal mc_pixel_clock : std_logic;
+    signal v80_addr     : std_logic_vector (12 downto 0);
+    signal v80_font_a   : std_logic_vector (11 downto 0);
+    signal v80_r, v80_g, v80_b : std_logic;
+    signal v80_hsync, v80_vsync, v80_hblank, v80_vblank, v80_field : std_logic;
 
 	     -- Colour palette registers
     signal logical_colour  : std_logic_vector(3 downto 0);
@@ -319,6 +333,30 @@ component keyboard
             );
     end component;
 	 
+	 component godil_vga80
+		port(
+			clk       : in  std_logic;
+			ce        : in  std_logic;
+			reset     : in  std_logic;
+			ocrx      : in  std_logic_vector(7 downto 0);
+			ocry      : in  std_logic_vector(7 downto 0);
+			octl      : in  std_logic_vector(7 downto 0);
+			octl2     : in  std_logic_vector(7 downto 0);
+			ram_addr  : out std_logic_vector(12 downto 0);
+			ram_data  : in  std_logic_vector(7 downto 0);
+			font_addr : out std_logic_vector(11 downto 0);
+			font_data : in  std_logic_vector(7 downto 0);
+			r         : out std_logic;
+			g         : out std_logic;
+			b         : out std_logic;
+			hsync     : out std_logic;
+			vsync     : out std_logic;
+			hblank    : out std_logic;
+			vblank    : out std_logic;
+			field     : out std_logic
+			);
+	 end component;
+
 	 component sid6581
 	 
 		port(
@@ -409,7 +447,7 @@ begin
             clk_ena        => clk_vid_en,
             reset          => reset_vid,
             da0            => open,
-            videoaddr      => vid_addr,
+            videoaddr      => mc_vid_addr,
             dd             => vid_data,
             hs_n           => vdg_hs_n,
             fs_n           => vdg_fs_n,
@@ -432,9 +470,9 @@ begin
             cvbs           => open,
             black_backgnd  => BLACK_BACKGND,
             border         => border,
-            char_a         => char_a,
+            char_a         => mc_char_a,
             char_d_o       => char_d_o,
-				pixel_clock    => pixel_clock
+				pixel_clock    => mc_pixel_clock
             );
 
        -- 8Kx8 Dual port video RAM
@@ -506,11 +544,53 @@ begin
                 );
 
     --------------------------------------------------------
+    -- GODIL VGA80x40 (#BDE0 bit 7)
+    --------------------------------------------------------
+    -- It reads the 6847's video RAM (bank as #BDE0 bit 5) and character ROM
+    -- in place of the 6847 while it is on; the mouse pointer is not drawn.
+    process (clk_vid)
+    begin
+        if rising_edge(clk_vid) then
+            vga80_s <= vga80_s(0) & extensions(7);
+        end if;
+    end process;
+    vga80 <= vga80_s(1);
+    vga80_on <= vga80;
+
+    Inst_vga80 : godil_vga80
+        port map (
+            clk       => clk_vid,
+            ce        => clk_vid_en,
+            reset     => reset_vid,
+            ocrx      => ocrx,
+            ocry      => ocry,
+            octl      => octl,
+            octl2     => octl2,
+            ram_addr  => v80_addr,
+            ram_data  => vid_data_raw,
+            font_addr => v80_font_a,
+            font_data => char_d_o,
+            r         => v80_r,
+            g         => v80_g,
+            b         => v80_b,
+            hsync     => v80_hsync,
+            vsync     => v80_vsync,
+            hblank    => v80_hblank,
+            vblank    => v80_vblank,
+            field     => v80_field
+            );
+
+    vid_addr    <= v80_addr   when vga80 = '1' else mc_vid_addr;
+    char_a      <= v80_font_a when vga80 = '1' else mc_char_a;
+    pixel_clock <= clk_vid_en when vga80 = '1' else mc_pixel_clock;
+
+    --------------------------------------------------------
     -- GODIL registers (#BDE0-#BDFF)
     --------------------------------------------------------
     -- Only what is implemented reads back: #BDE0 (mode extensions; bits 4/5
-    -- are the video RAM banks, the other bits are stored but have no effect
-    -- yet), #BDE8-#BDEA (mouse) and #BDEF (version 1.4, AtomGodilVideo's).
+    -- are the video RAM banks, bit 7 VGA80x40, the other bits are stored but
+    -- have no effect yet), #BDE2-#BDE5 (VGA80x40 cursor and control),
+    -- #BDE8-#BDEA (mouse) and #BDEF (version 1.4, AtomGodilVideo's).
     -- The rest reads #F1 as in AtomGodilVideo with those features left out.
     process (clk_main)
     begin
@@ -519,9 +599,17 @@ begin
                 extensions    <= (others => '0');
                 extensions(3) <= not charset;  -- 1 = original character set
                 pointer_nr    <= x"80";        -- pointer off
+                ocrx          <= x"00";
+                ocry          <= x"00";
+                octl          <= x"82";        -- VGA on, green on
+                octl2         <= x"00";        -- black
             elsif godil_cs = '1' and not_cpu_R_W_n = '1' then
                 case cpu_addr(4 downto 0) is
                     when "00000" => extensions <= cpu_dout;
+                    when "00010" => ocrx       <= cpu_dout;
+                    when "00011" => ocry       <= cpu_dout;
+                    when "00100" => octl       <= cpu_dout;
+                    when "00101" => octl2      <= cpu_dout;
                     when "01010" => pointer_nr <= cpu_dout;
                     when others  => null;
                 end case;
@@ -532,6 +620,10 @@ begin
     -- #BDE9 reads 255 at the top to 64 at the bottom; #BDEA bits 2-0 read 0
     -- while a button is held (the GODIL wiki).
     godil_dout <= extensions     when cpu_addr(4 downto 0) = "00000" else
+                  ocrx           when cpu_addr(4 downto 0) = "00010" else
+                  ocry           when cpu_addr(4 downto 0) = "00011" else
+                  octl           when cpu_addr(4 downto 0) = "00100" else
+                  octl2          when cpu_addr(4 downto 0) = "00101" else
                   mouse_x        when cpu_addr(4 downto 0) = "01000" else
                   not mouse_y    when cpu_addr(4 downto 0) = "01001" else
                   pointer_nr(7) & "1111" & not mouse_buttons when cpu_addr(4 downto 0) = "01010" else
@@ -634,17 +726,28 @@ begin
     process (clk_vid)
     begin
         if rising_edge(clk_vid) then
-            if vga_blank = '1' then
-                physical_colour <= (others => '0');
+            if vga80 = '1' then
+                -- VGA80x40: its own colours (no palette), syncs and field
+                physical_colour <= v80_r & v80_r & v80_g & v80_g & v80_b & v80_b;
+                vsync  <= v80_vsync;
+                hsync  <= v80_hsync;
+                vblank <= v80_vblank;
+                hblank <= v80_hblank;
+                field  <= v80_field;
             else
-                physical_colour <= palette(conv_integer(logical_colour));
+                if vga_blank = '1' then
+                    physical_colour <= (others => '0');
+                else
+                    physical_colour <= palette(conv_integer(logical_colour));
+                end if;
+                -- Also register hsync/vsync so they are correctly
+                -- aligned with the colour changes
+                vsync		<= vga_vsync;
+                hsync    <= vga_hsync;
+                vblank   <= vga_vblank;
+                hblank   <= vga_hblank;
+                field    <= '1';
             end if;
-            -- Also register hsync/vsync so they are correctly
-            -- aligned with the colour changes
-            vsync		<= vga_vsync;
-				hsync    <= vga_hsync;
-				vblank   <= vga_vblank;
-				hblank   <= vga_hblank;
 				-- character set selection
 				if charset = '0' then
 					char_d_o 	<= char_do;

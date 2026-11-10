@@ -72,6 +72,8 @@ module top (
 	output        VGA_HB,
 	output        VGA_VB,
 	output        CE_PIXEL,
+	output        VGA_F1,          // GODIL VGA80x40 interlace: 1 = top field
+	output        VGA80_ON,        // VGA80x40 on the screen (640x480i)
 
 	output [15:0] AUDIO_L,
 	output [15:0] AUDIO_R,
@@ -202,6 +204,8 @@ AtomFpga_Core core (
 	.hsync         (hs),
 	.vblank        (vblank),
 	.hblank        (hblank),
+	.field         (VGA_F1),
+	.vga80_on      (VGA80_ON),
 
 	.ExternWE      (mem_we),
 	.ExternA       (mem_addr),

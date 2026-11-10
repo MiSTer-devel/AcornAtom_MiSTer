@@ -20,7 +20,11 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
   (Video, Border: On/Off; Off shows only the 256x192 picture)
 * GODIL extensions (from AtomGodilVideo): two 8 KB video RAM banks (#BDE0 bits 4 and 5,
   as Bad Apple uses), the mouse and pointer (#BDE8-#BDEA, for Atomic Windows; MiSTer's
-  mouse moves it), the version register (#BDEF)
+  mouse moves it), the version register (#BDEF), and VGA80x40: 80x40 coloured text
+  (#BDE0 bit 7, cursor and colours #BDE2-#BDE5), shown at 15 kHz as 640x480
+  interlaced (the HDMI scaler weaves the fields). FPGAUTIL in utility ROM bank 6
+  turns it on: `?#BFFF=6` then `VGA80`. Ozmoo and the Tube clients (CP/M, FLEX,
+  Z80 BBC BASIC) use it through OSWRCH80
 * Atom or BBC Basic mode
 * Colour palette
 * SID sound

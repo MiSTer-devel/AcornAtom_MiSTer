@@ -52,6 +52,13 @@
 #define VGA_HEIGHT_BORDER 243
 static int vga_w = VGA_WIDTH, vga_h = VGA_HEIGHT;
 
+// GODIL VGA80x40 (rtl/godil_vga80.sv) is 640x480 interlaced: its two fields
+// are woven here by VGA_F1 (1 = the top field, picture lines 0, 2, 4 ...),
+// as MiSTer's scaler does, and screenshots taken while it is on are 640x480.
+#define V80_W 640
+#define V80_H 480
+static std::vector<uint32_t> v80_frame(V80_W * V80_H, 0xFF000000u);
+
 // The two PLL clocks of the hardware, in picoseconds per half period.
 //   clk_42: 42.954545 MHz (3 x the NTSC colour burst; the 6847 runs on an
 //           enable at 14.318 MHz, its half-dots at 7.159 MHz)
@@ -152,11 +159,13 @@ static void save_screenshot(int frame_number, const char* name = nullptr)
 	else if (!screenshot_name.empty()) snprintf(filename, sizeof(filename), "%s", screenshot_name.c_str());
 	else                               snprintf(filename, sizeof(filename), "%s_%04d.png", screenshot_prefix.c_str(), frame_number);
 
-	const int w = video.output_width, h = video.output_height;
+	const bool v80 = top->VGA80_ON;
+	const int w = v80 ? V80_W : video.output_width, h = v80 ? V80_H : video.output_height;
+	const uint32_t* fb = v80 ? v80_frame.data() : output_ptr;
 	std::vector<uint8_t> rgb((size_t)w * h * 3);
 	for (int y = 0; y < h; y++)
 		for (int x = 0; x < w; x++) {
-			uint32_t p = output_ptr[y * w + x];     // 0xFF000000 | B<<16 | G<<8 | R
+			uint32_t p = fb[y * w + x];             // 0xFF000000 | B<<16 | G<<8 | R
 			size_t d = ((size_t)y * w + x) * 3;
 			rgb[d + 0] = p & 0xFF; rgb[d + 1] = (p >> 8) & 0xFF; rgb[d + 2] = (p >> 16) & 0xFF;
 		}
@@ -436,6 +445,18 @@ static void step()
 		if (prev_ce && !ce) {
 			uint32_t colour = 0xFF000000u | ((uint32_t)top->VGA_B << 16) | ((uint32_t)top->VGA_G << 8) | (uint32_t)top->VGA_R;
 			video.Clock(top->VGA_HB, top->VGA_VB, top->VGA_HS, top->VGA_VS, colour);
+			if (top->VGA80_ON) {
+				static int vx = 0, vy = 0; static uint8_t hb0 = 1, vb0 = 1;
+				if (top->VGA_VB && !vb0) vy = 0;                  // end of a field's picture
+				if (top->VGA_HB && !hb0 && !top->VGA_VB) vy++;    // end of a picture line
+				if (!top->VGA_HB && hb0) vx = 0;
+				if (!top->VGA_HB && !top->VGA_VB) {
+					int y = 2 * vy + (top->VGA_F1 ? 0 : 1);
+					if (vx < V80_W && y < V80_H) v80_frame[y * V80_W + vx] = colour;
+					vx++;
+				}
+				hb0 = top->VGA_HB; vb0 = top->VGA_VB;
+			}
 			if (trace_video_frame >= 0) {
 				static int pos = -1, line = 0, hs_up, hb_on, hb_off, lit0, lit1, vs0, vb0;
 				static uint8_t prev_hs = 0;

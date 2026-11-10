@@ -427,6 +427,8 @@ AtomFpga_Core AcornAtom
 	.vsync(vs),
 	.hblank(hblank),
 	.vblank(vblank),
+	.field(field),
+	.vga80_on(vga80_on),
 	
 		// External 6502 bus interface
 //	.phi2(),
@@ -505,6 +507,7 @@ assign AUDIO_MIX = 0;
 assign AUDIO_S = 1'b1;
 
 wire hs, vs, hblank, vblank,  clk_sel;
+wire field, vga80_on;   // GODIL VGA80x40: 640x480 interlaced, field 1 = top
 wire [1:0] r,g,b;
 
 assign CLK_VIDEO = clk_42;// clk_25;
@@ -630,11 +633,15 @@ video_mixer #(.GAMMA(1)) video_mixer
 
 
 
-assign VGA_F1 = 0;
+// VGA80x40 is interlaced: the scaler weaves the fields by VGA_F1, so the
+// scandoubler (which would bob them) stays off unless the VGA port needs it.
+// MiSTer's VGA_F1 is 1 for the lower field (checked on mister192: with
+// VGA_F1 = field every glyph row traded places with its neighbour).
+assign VGA_F1 = vga80_on & ~field;
 reg [2:0] scale;
 always @(posedge clk_42) scale = cfg[3:1];
 wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
-wire       scandoubler = (scale || forced_scandoubler);
+wire       scandoubler = ((scale && !vga80_on) || forced_scandoubler);
 assign VGA_SL = sl[1:0];
 
 //////////////////   SD   ///////////////////

@@ -63,6 +63,7 @@ shifted key depends on the OSD layout, exactly as on the hardware.
 | cat | `*CAT` on `../software/mister11/boot.vhd` lists the directory (golden image; skipped without the VHD) |
 | godil_regs, godil_banks | `#BDEF` reads 20 (version 1.4) and `#BDE0` 8; the CPU writes video bank 1 while bank 0 is shown, then bank 1 is shown (golden images) |
 | godil_mouse, godil_pointer | with no mouse moves `#BDE8-#BDEA` read 128 159 255; `CLEAR4;?#BDEA=0` draws pointer 0 at the centre (golden images) |
+| vga80, vga80_util | VGA80x40 (640x480 interlaced, the sim weaves the fields): `?#BDE0=#80` shows the BASIC screen's bytes as 80 columns; FPGAUTIL's `VGA80` (`?#BFFF=6`) clears to white on blue and BASIC prints there (golden images) |
 | border_gfx, border_text | `--border on`: CLEAR 1 with every other byte set inside the green border, and the text screen inside a black one (golden images); border_gfx also checks line 150's measured timing (455, sync 35, picture 129..384, the first 16-pixel byte at the picture's edge) |
 | sid, sid4 | a voice gated from BASIC moves the audio output at 1 MHz and in 4 MHz turbo (`--trace-audio` log) |
 | hint_basic, hint_code, hint_data | the tape hint for BBALL (`LOAD`), ASTEROIDS (`*RUN`) and a loading screen (`*LOAD`) at frame 50 |
