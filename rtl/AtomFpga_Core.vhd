@@ -949,7 +949,11 @@ end process;
             txd               => avr_TxD
             );
 
-        ioport <= "111" & Joystick1(5) & Joystick1(0) & Joystick1(1) & Joystick1(2) & Joystick1(3);
+        -- AtoMMC's joystick byte (CMD_READ_PORT): bit 0 right, 1 left, 2 down,
+        -- 3 up, 4 fire, active low (Atomulator atmmc2core.c). That is MiSTer's
+        -- joystick order; upstream's line reorders an Atari joystick (0 up,
+        -- 1 down, 2 left, 3 right, 5 fire) and would swap the directions here.
+        ioport <= "111" & Joystick1(4 downto 0);
 
         Inst_AtomPL8: entity work.AtomPL8 port map(
             clk               => clk_main,
