@@ -33,7 +33,7 @@ V_SRC = \
 	sim.v \
 	rtl/altsyncram.v \
 	$(NETLIST) \
-	$(RTL)/keyboard.sv $(RTL)/audio_mix.sv $(RTL)/gunzip.sv $(RTL)/csw_in.sv $(RTL)/atom_tape.sv $(RTL)/tape_overlay.sv $(RTL)/break_keys.sv \
+	$(RTL)/keyboard.sv $(RTL)/audio_mix.sv $(RTL)/gunzip.sv $(RTL)/csw_in.sv $(RTL)/atom_tape.sv $(RTL)/tape_overlay.sv $(RTL)/break_keys.sv $(RTL)/godil_mouse.sv \
 	$(RTL)/SID/sid_6581.v $(RTL)/SID/sid_coeffs.v $(RTL)/SID/sid_components.v \
 	$(RTL)/SID/sid_filters.v $(RTL)/SID/sid_voice.v \
 	$(SYS)/sd_card.sv

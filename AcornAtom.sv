@@ -83,6 +83,7 @@ parameter CONF_STR = {
 	"P2O[3:1],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"P2O[8],Character set,Original,Xtra;",
 	"P2O[9],Background,Black,Dark;",
+	"P2O[23],Border,On,Off;",
 	"P2O[19],Tape overlay,On,Off;",
 
 	"P3O[7:6],Keyboard layout,PC (US),PC (UK),Atom (original),Atom (game);",
@@ -167,8 +168,8 @@ wire  [7:0] tape_info;
 // directly and stay out of the pending compare.
 reg  [127:0] cfg = 0;
 always @(posedge clk_sys) if (reset) cfg <= status;
-wire pending = {status[14:13], status[12:8], status[5:1]}
-            != {cfg[14:13],    cfg[12:8],    cfg[5:1]};
+wire pending = {status[23], status[14:13], status[12:8], status[5:1]}
+            != {cfg[23],    cfg[14:13],    cfg[12:8],    cfg[5:1]};
 wire  [1:0] buttons;
 
 wire [15:0] joy1, joy2;
@@ -187,6 +188,20 @@ wire [8:0] ps2_code_sw =
 	ps2_code == 9'h127    ? 9'h111 : ps2_code;
 wire [10:0] ps2_key_core = {ps2_key[10:9], ps2_code_sw};
 wire [24:0] ps2_mouse;
+
+// GODIL mouse (#BDE8-#BDEA): MiSTer's mouse moves the pointer that Atomic
+// Windows and other GODIL software read and draw.
+wire [7:0] mouse_x, mouse_y;
+wire [2:0] mouse_buttons;
+godil_mouse godil_mouse
+(
+	.clk(clk_sys),
+	.reset(reset),
+	.ps2_mouse(ps2_mouse),
+	.x(mouse_x),
+	.y(mouse_y),
+	.buttons(mouse_buttons)
+);
 
 wire        ioctl_download;
 wire  [7:0] ioctl_index;
@@ -384,6 +399,7 @@ AtomFpga_Core AcornAtom
 	// encoding is 0 UK, 1 US, 2 original, 3 game.
 	.layout(status[7:6] == 2'd0 ? 2'd1 : status[7:6] == 2'd1 ? 2'd0 : status[7:6]),
 	.BLACK_BACKGND(~cfg[9]),
+	.border(~cfg[23]),
 	.computer(cfg[10]),
 	.turbo_default(cfg[14:13]),
 	.osd_break(osd_break),
@@ -393,10 +409,10 @@ AtomFpga_Core AcornAtom
 	.cas_tick(cas_tick),
 	.cpu_addr_o(cpu_addr),
 	.cpu_clken_o(cpu_clken),
+	.mouse_x(mouse_x),
+	.mouse_y(mouse_y),
+	.mouse_buttons(mouse_buttons),
 
-        // Mouse
-//   .ps2_mouse_clk(mse_clk),	//  : inout std_logic;
-//   .ps2_mouse_data(mse_clk),	// : inout std_logic;
 	
 		//resets
 //	.powerup_reset_n(~RESET),

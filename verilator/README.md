@@ -32,7 +32,9 @@ the working directory.
 |---|---|
 | `--headless` | no window (still renders, so screenshots work) |
 | `--vhd <file>`, `--vhd-at N` | mount a VHD on the AtoMMC SD card at start, or at frame N |
-| `--screenshot N[,N...]`, `--screenshot-prefix`, `--screenshot-name` | PNGs of the 256x192 active area (60 frames = 1 s) |
+| `--screenshot N[,N...]`, `--screenshot-prefix`, `--screenshot-name` | PNGs of the 256x192 picture, or the 371x243 visible area with `--border on` (60 frames = 1 s) |
+| `--border on\|off` | OSD Border (default off here, so the goldens stay 256x192) |
+| `--trace-video F[,L]` | frame F's line timing in pixel clocks from the start of horizontal sync: sync end, visible area, first/last lit pixel, line length, VS/VBLANK; with L, that line's lit/dark runs |
 | `--stop-at-frame N` | exit after frame N |
 | `--send-keys N:text` | type at frame N: `\n` Return, `\xNN` raw PS/2 code, `\U\D\L\R` arrows, `\1`..`\4` F1-F4 (turbo), `\K` BREAK (F10), `\e` Escape |
 | `--break N[,N...]` | tap BREAK at these frames |
@@ -59,6 +61,9 @@ shifted key depends on the OSD layout, exactly as on the hardware.
 | print | `PRINT 1+1` answers 2 (golden image) |
 | unmapped | `P.?#BC00;?#B500=5;P.?#B500;P.?#B000` prints 241 241 0: undecoded #Bxxx reads #F1 and keeps nothing (golden image) |
 | cat | `*CAT` on `../software/mister11/boot.vhd` lists the directory (golden image; skipped without the VHD) |
+| godil_regs, godil_banks | `#BDEF` reads 20 (version 1.4) and `#BDE0` 8; the CPU writes video bank 1 while bank 0 is shown, then bank 1 is shown (golden images) |
+| godil_mouse, godil_pointer | with no mouse moves `#BDE8-#BDEA` read 128 159 255; `CLEAR4;?#BDEA=0` draws pointer 0 at the centre (golden images) |
+| border_gfx, border_text | `--border on`: CLEAR 1 with every other byte set inside the green border, and the text screen inside a black one (golden images); border_gfx also checks line 150's measured timing (455, sync 35, picture 129..384, the first 16-pixel byte at the picture's edge) |
 | sid, sid4 | a voice gated from BASIC moves the audio output at 1 MHz and in 4 MHz turbo (`--trace-audio` log) |
 | hint_basic, hint_code, hint_data | the tape hint for BBALL (`LOAD`), ASTEROIDS (`*RUN`) and a loading screen (`*LOAD`) at frame 50 |
 | tape_bball | F11, `LOAD"BBALL"`, a key at PLAY TAPE: the 8x load ends at the prompt with `TYPE RUN` (frame 580) |
@@ -74,9 +79,9 @@ Each scenario takes a few minutes; `./run_tests.sh boot` runs one.
 
 `clk_42` (42.954545 MHz, the 6847 side) and `clk_32` (32 MHz, the CPU side)
 are scheduled independently in picoseconds, so their relationship is the
-hardware's. The 6847 line is 456 half-dots (228 chroma clocks, 63.7 us) and
-the frame 262 lines, 59.92 Hz, so frame numbers mean the same thing as on
-the hardware and as in MAME.
+hardware's. The 6847 line is 455 pixel clocks (227.5 periods of 3.58 MHz,
+63.56 us, the datasheet's) and the frame 262 lines, 59.94 Hz, so frame
+numbers mean the same thing as on the hardware.
 
 ## Netlist post-processing (tools/ghdl_synth.sh)
 

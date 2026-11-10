@@ -58,6 +58,10 @@
 	set_global_assignment -name VHDL_FILE rtl/AVR8/Memory/XPM_AtoMMC2.vhd
 
 	set_global_assignment -name VHDL_FILE rtl/MC6847/mc6847.vhd
+	set_global_assignment -name VHDL_FILE rtl/godil/Pointer.vhd
+	set_global_assignment -name VHDL_FILE rtl/godil/PointerRamBlack.vhd
+	set_global_assignment -name VHDL_FILE rtl/godil/PointerRamWhite.vhd
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/godil_mouse.sv
     set_global_assignment -name VHDL_FILE rtl/MC6847/CharRom.vhd
 	set_global_assignment -name VHDL_FILE rtl/MC6847/CharRomx.vhd
     set_global_assignment -name VHDL_FILE rtl/MC6847/VideoRam.vhd

@@ -33,6 +33,7 @@ entity AtomFpga_Core is
 		  ps2_key			 : in 	std_logic_vector (10 downto 0);
 		  layout				 : in    std_logic_vector(1 downto 0);
 		  BLACK_BACKGND	 : in    std_logic;
+        border           : in    std_logic := '1';  -- 6847 border shown (OSD)
 		  computer 			 : in    std_logic;
         turbo_default    : in    std_logic_vector(1 downto 0) := "00"; -- CPU speed at reset (OSD)
         osd_break        : in    std_logic := '0';  -- BREAK from the OSD (level; hold it a few ms)
@@ -42,6 +43,11 @@ entity AtomFpga_Core is
         cas_tick         : out   std_logic;         -- one clk_main per 2.4 kHz half cycle (scales with the CPU speed)
         cpu_addr_o       : out   std_logic_vector(15 downto 0); -- for the tape deck: where the CPU is
         cpu_clken_o      : out   std_logic;
+        -- GODIL mouse (rtl/godil_mouse.sv): pointer position, x 0..255 from the
+        -- left, y 0..191 from the top, and the buttons {middle, right, left}
+        mouse_x          : in    std_logic_vector(7 downto 0) := x"80";
+        mouse_y          : in    std_logic_vector(7 downto 0) := x"60";
+        mouse_buttons    : in    std_logic_vector(2 downto 0) := "000";
 
         -- Resets
 --        powerup_reset_n  : in    std_logic := '1'; -- power up reset only (optional)
@@ -157,6 +163,21 @@ architecture BEHAVIORAL of AtomFpga_Core is
     -- Port A connects to Atom and is read/write
     -- Port B connects to MC6847 and is read only
     signal vid_dout : std_logic_vector (7 downto 0);
+    -- GODIL video RAM banks (AtomGodilVideo CImplDoubleVideo): two 8 KB banks
+    -- at #8000-#9FFF; #BDE0 bit 4 picks the CPU's bank, bit 5 the 6847's.
+    signal bank0_douta, bank1_douta : std_logic_vector (7 downto 0);
+    signal bank0_doutb, bank1_doutb : std_logic_vector (7 downto 0);
+    signal bank0_we, bank1_we       : std_logic;
+    signal bank_sela                : std_logic;
+    signal bank_selb_s              : std_logic_vector (1 downto 0);  -- bit 5 synchronised to clk_vid
+    -- GODIL registers #BDE0-#BDFF (see refs/video/AtomGodilVideo.wiki, memory map)
+    signal godil_cs     : std_logic;
+    signal godil_dout   : std_logic_vector (7 downto 0);
+    signal extensions   : std_logic_vector (7 downto 0);  -- #BDE0 mode extension register
+    -- GODIL mouse pointer (#BDE8-#BDEA, rtl/godil/Pointer.vhd)
+    signal pointer_nr   : std_logic_vector (7 downto 0);  -- #BDEA: bit 7 off, bits 4-0 image
+    signal vid_data_raw : std_logic_vector (7 downto 0);  -- video RAM data before the pointer
+    signal ptr_s0, ptr_s1 : std_logic_vector (21 downto 0); -- {on, image, x, y} into clk_vid
     signal vid_addr : std_logic_vector (12 downto 0);
     signal vid_data : std_logic_vector (7 downto 0);
 
@@ -410,6 +431,7 @@ begin
             vblank         => vga_vblank,
             cvbs           => open,
             black_backgnd  => BLACK_BACKGND,
+            border         => border,
             char_a         => char_a,
             char_d_o       => char_d_o,
 				pixel_clock    => pixel_clock
@@ -418,19 +440,103 @@ begin
        -- 8Kx8 Dual port video RAM
         -- Port A connects to Atom and is read/write
         -- Port B connects to MC6847 and is read only    
-        Inst_VideoRam : entity work.VideoRam
+        Inst_VideoRam0 : entity work.VideoRam
             port map (
                 clka  => clk_main,
-                wea   => video_ram_we,
+                wea   => bank0_we,
                 addra => cpu_addr(12 downto 0),
                 dina  => cpu_dout,
-                douta => vid_dout,
+                douta => bank0_douta,
                 clkb  => clk_vid,
                 web   => '0',
                 addrb => vid_addr,
                 dinb  => (others => '0'),
-                doutb => vid_data
+                doutb => bank0_doutb
                 );
+
+        Inst_VideoRam1 : entity work.VideoRam
+            port map (
+                clka  => clk_main,
+                wea   => bank1_we,
+                addra => cpu_addr(12 downto 0),
+                dina  => cpu_dout,
+                douta => bank1_douta,
+                clkb  => clk_vid,
+                web   => '0',
+                addrb => vid_addr,
+                dinb  => (others => '0'),
+                doutb => bank1_doutb
+                );
+
+        bank_sela <= extensions(4);
+        bank0_we  <= video_ram_we when bank_sela = '0' else '0';
+        bank1_we  <= video_ram_we when bank_sela = '1' else '0';
+        vid_dout  <= bank1_douta when bank_sela = '1' else bank0_douta;
+
+        -- The 6847's bank select crosses into clk_vid: two flops (AcornAtom.sdc).
+        process (clk_vid)
+        begin
+            if rising_edge(clk_vid) then
+                bank_selb_s <= bank_selb_s(0) & extensions(5);
+            end if;
+        end process;
+        vid_data_raw <= bank1_doutb when bank_selb_s(1) = '1' else bank0_doutb;
+
+        -- The mouse pointer is drawn into the video data on its way to the 6847
+        -- (AtomGodilVideo CImplMouse). Its position and image cross into
+        -- clk_vid through two flops; they change at most once per mouse packet.
+        process (clk_vid)
+        begin
+            if rising_edge(clk_vid) then
+                ptr_s0 <= (not pointer_nr(7)) & pointer_nr(4 downto 0) & mouse_x & mouse_y;
+                ptr_s1 <= ptr_s0;
+            end if;
+        end process;
+
+        Inst_Pointer : entity work.Pointer
+            port map (
+                CLK  => clk_vid,
+                PO   => ptr_s1(21),
+                PS   => ptr_s1(20 downto 16),
+                X    => ptr_s1(15 downto 8),
+                Y    => ptr_s1(7 downto 0),
+                ADDR => vid_addr,
+                DIN  => vid_data_raw,
+                DOUT => vid_data
+                );
+
+    --------------------------------------------------------
+    -- GODIL registers (#BDE0-#BDFF)
+    --------------------------------------------------------
+    -- Only what is implemented reads back: #BDE0 (mode extensions; bits 4/5
+    -- are the video RAM banks, the other bits are stored but have no effect
+    -- yet), #BDE8-#BDEA (mouse) and #BDEF (version 1.4, AtomGodilVideo's).
+    -- The rest reads #F1 as in AtomGodilVideo with those features left out.
+    process (clk_main)
+    begin
+        if rising_edge(clk_main) then
+            if RSTn = '0' then
+                extensions    <= (others => '0');
+                extensions(3) <= not charset;  -- 1 = original character set
+                pointer_nr    <= x"80";        -- pointer off
+            elsif godil_cs = '1' and not_cpu_R_W_n = '1' then
+                case cpu_addr(4 downto 0) is
+                    when "00000" => extensions <= cpu_dout;
+                    when "01010" => pointer_nr <= cpu_dout;
+                    when others  => null;
+                end case;
+            end if;
+        end if;
+    end process;
+
+    -- #BDE9 reads 255 at the top to 64 at the bottom; #BDEA bits 2-0 read 0
+    -- while a button is held (the GODIL wiki).
+    godil_dout <= extensions     when cpu_addr(4 downto 0) = "00000" else
+                  mouse_x        when cpu_addr(4 downto 0) = "01000" else
+                  not mouse_y    when cpu_addr(4 downto 0) = "01001" else
+                  pointer_nr(7) & "1111" & not mouse_buttons when cpu_addr(4 downto 0) = "01010" else
+                  x"14"          when cpu_addr(4 downto 0) = "01111" else
+                  x"F1";
 
 				
         ---- ram for char generator      
@@ -796,6 +902,7 @@ end process;
         pia_cs     	<= '0';
         vid_cs  		<= '0';
         sid_cs       <= '0';
+        godil_cs     <= '0';
         pl8_cs       <= '0';
 		  palette_cs	<= '0';
 		  ext_rom_cs 	<= '0';
@@ -823,13 +930,8 @@ end process;
 						else
 							ext_ram_cs <= '1';
 						end if;
-            when x"8" => vid_cs  	<= '1';  -- 0x8000 -- 0x9fff is RAM
-            when x"9" => 
-						if cpu_addr(11) = '0' then
-							vid_cs  <= '1';
-						else
-							ext_ram_cs <= '1';
-						end if;
+            when x"8" => vid_cs  	<= '1';  -- 0x8000 -- 0x9fff is video RAM (8 KB, banked)
+            when x"9" => vid_cs  	<= '1';
             when x"A" => 
 						ext_rom_cs <= '1';
 						A000_cs	<= '1';
@@ -847,6 +949,8 @@ end process;
 							palette_cs <= '1';
                 elsif cpu_addr(11 downto 5) & '0' 		= x"DC" then --  SID
                      sid_cs <= '1';
+                elsif cpu_addr(11 downto 5) & '0' 		= x"DE" then --  0xBDEx, 0xBDFx GODIL registers
+                     godil_cs <= '1';
 					 else null;   -- un-decoded: no RAM here on an Atom; reads #F1 as upstream
                 end if;
             when x"C"   => ext_rom_cs <= '1';
@@ -868,6 +972,7 @@ end process;
 		  via_dout     when via_cs = '1'      	else
 		  pl8_data 		when pl8_cs = '1'			else
 		  sid_dout		when sid_cs = '1'       else  
+		  godil_dout	when godil_cs = '1'     else
 		  RegBFFF	 	when BFFF_Enable ='1'   else
 		  ram_dout		when A000_cs ='1'    	else
         ram_dout	 	when ext_ram_cs ='1'    else

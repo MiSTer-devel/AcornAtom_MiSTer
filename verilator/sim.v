@@ -22,11 +22,13 @@ module top (
 	input         reset,
 
 	input  [10:0] ps2_key,
+	input  [24:0] ps2_mouse,       // as hps_io's (rtl/godil_mouse.sv); 0 = no mouse moves
 	input  [15:0] joy1,
 	input  [15:0] joy2,
 	input   [1:0] layout,          // OSD Keyboard: UK, US, orig, game (status[7:6])
 	input         charset,         // OSD character set: xtra (status[8])
 	input         dark_background, // OSD Background: Dark (status[9])
+	input         border_en,       // OSD Border: On (status[23] = 0)
 	input         bbc_mode,        // OSD Mode: BBC (status[10])
 	input         speaker_en,      // OSD Audio: Speaker (status[4] = 0)
 	input         sid_en,          // OSD Audio: SID (status[5] = 0)
@@ -159,6 +161,13 @@ wire        a_audio;
 wire [17:0] sid_audio;
 wire        sdclk, sdss, sdmosi, sdmiso;
 
+wire [7:0] mouse_x, mouse_y;
+wire [2:0] mouse_buttons;
+godil_mouse godil_mouse (
+	.clk(clk_32), .reset(reset), .ps2_mouse(ps2_mouse),
+	.x(mouse_x), .y(mouse_y), .buttons(mouse_buttons)
+);
+
 AtomFpga_Core core (
 	.clk_vid       (clk_42),
 	.clk_vid_en    (clk_14M318_ena),
@@ -170,6 +179,7 @@ AtomFpga_Core core (
 	.ps2_key       (ps2_key),
 	.layout        (layout),
 	.BLACK_BACKGND (~dark_background),
+	.border        (border_en),
 	.computer      (bbc_mode),
 	.turbo_default (turbo_default),
 	.osd_break     (osd_break),
@@ -178,6 +188,9 @@ AtomFpga_Core core (
 	.tape_turbo    (tape_turbo),
 	.cas_tick      (cas_tick),
 	.cpu_addr_o    (cpu_addr),
+	.mouse_x       (mouse_x),
+	.mouse_y       (mouse_y),
+	.mouse_buttons (mouse_buttons),
 	.cpu_clken_o   (cpu_clken),
 
 	.ext_reset_n   (~reset),

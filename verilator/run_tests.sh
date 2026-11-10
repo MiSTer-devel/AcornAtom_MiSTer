@@ -38,6 +38,38 @@ run boot 60
 run print 200 --send-keys '60:PRINT 1+1\n'
 # Undecoded #Bxxx reads #F1 (241) and ignores writes, as upstream; #B000 is the 8255.
 run unmapped 640 --send-keys '60:P.?#BC00;?#B500=5;P.?#B500;P.?#B000\n'
+# GODIL registers and video RAM banks (#BDE0 bit 4 = CPU bank, bit 5 = 6847
+# bank): the version (#BDEF = #14 = 20) and #BDE0 read back; then the CPU
+# writes into bank 1 while bank 0 stays on screen, and P."BANK1" is typed
+# blind; showing bank 1 then shows that line on bank 1's own (zeroed) screen.
+run godil_regs 340 --send-keys '60:P.?#BDEF,?#BDE0\n'
+run godil_banks 900 --send-keys '60:P.?#BDEF,?#BDE0\n' --send-keys '360:?#BDE0=#10\n' \
+	--send-keys '540:P."BANK1"\n' --send-keys '700:?#BDE0=#30\n'
+# GODIL mouse (#BDE8-#BDEA, rtl/godil_mouse.sv): with no mouse moves the
+# pointer is at the centre (X 128, Y 255-96 = 159) and off (#BDEA = 255: bit 7
+# off, no buttons). Then CLEAR 4 and #BDEA=0 draw pointer 0 (an arrow) there.
+run godil_mouse 480 --send-keys '60:P.?#BDE8,?#BDE9,?#BDEA\n'
+run godil_pointer 420 --send-keys '60:CLEAR4;?#BDEA=0\n'
+# 6847 timing and border (rtl/MC6847/mc6847.vhd, the datasheet's 15 kHz
+# timing). CLEAR 1 (16 pixels a byte) with every other byte set, border on:
+# the golden image, and line 150 measured from the start of sync must be
+# 455 long, sync 35, visible 70..440 (left border 59, picture 256 from 129,
+# right border 56), and start "d70 L75": sync + back porch dark, then the
+# green border running into the first byte's 16 pixels. Text mode with the
+# border on: black border, the banner at the picture's corner.
+run border_gfx 700 --border on --turbo 8 --trace-video 699,150 \
+	--send-keys '60:CLEAR1;F.I=#8000TO#83FFSTEP4;!I=#FF00FF;N.\n'
+if [ -z "$only" ] || [[ border_gfx == "$only"* ]]; then
+	l=$(grep '^\[video\] line 150 len' "$OUT/border_gfx.log")
+	r=$(grep '^\[video\] line 150 runs' "$OUT/border_gfx.log")
+	if [[ $l == *"len 455 hs_end  35 vis  70..441"* ]] && [[ $r == *"start: d70 L75 d16 L16 "*" d16 L56 d14" ]]; then
+		echo "PASS border_gfx timing (455 a line, sync 35, picture 129..384)"
+	else
+		echo "FAIL border_gfx timing: $l / $r"; fail=1
+	fi
+fi
+run border_text 60 --border on
+
 # AtoMMC: *CAT lists the VHD's root directory through sys/sd_card.sv.
 if [ -f ../software/mister11/boot.vhd ]; then
 	run cat 300 --vhd ../software/mister11/boot.vhd --send-keys '120:*CAT\n'

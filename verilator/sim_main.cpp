@@ -44,8 +44,13 @@
 #include "sim/stb_image_write.h"
 
 // Active picture of the 6847: 256 x 192 inside a 456 x 262 frame.
+// With the border (--border on): the 6847's whole visible area, 371 x 243
+// (rtl/MC6847/mc6847.vhd: C_BLANK - C_BORDER_L by 26 + 192 + 25 lines).
 #define VGA_WIDTH  256
 #define VGA_HEIGHT 192
+#define VGA_WIDTH_BORDER  371
+#define VGA_HEIGHT_BORDER 243
+static int vga_w = VGA_WIDTH, vga_h = VGA_HEIGHT;
 
 // The two PLL clocks of the hardware, in picoseconds per half period.
 //   clk_42: 42.954545 MHz (3 x the NTSC colour burst; the 6847 runs on an
@@ -89,6 +94,7 @@ int  vhd_at_frame = 0;
 // OSD settings, as AcornAtom.sv reads them out of status
 int  opt_layout   = 0;      // Keyboard: UK, US, orig, game
 bool opt_charset  = false;  // character set: xtra
+bool opt_border   = false;  // OSD Border: On (the sim defaults to Off: 256x192 goldens)
 bool opt_dark     = false;  // Background: Dark
 bool opt_bbc      = false;  // Mode: BBC
 bool opt_speaker  = true;   // Audio: Speaker On
@@ -103,6 +109,13 @@ int  tape_at_frame = 0;
 bool opt_tape_fast = true;          // OSD Tape speed: 8x
 bool opt_tape_overlay = true;
 bool trace_tape = false;
+// --trace-video F: one line per scan line of frame F, every position in pixel
+// clocks (CE_PIXEL) from the leading edge of horizontal sync (VGA_HS rises):
+// the end of sync, HBLANK low (visible) and high again, the first and last
+// lit pixel, the line length, and VS/VBLANK at the start of the line. Line 0
+// is the first line of vertical sync.
+int  trace_video_frame = -1;
+int  trace_video_line  = -1;   // --trace-video F,L: also line L's lit/unlit runs
 bool sloppy_shift = false;          // --sloppy-shift: let go of Shift before the key it shifts
 std::vector<int> rewind_frames;
 
@@ -423,6 +436,40 @@ static void step()
 		if (prev_ce && !ce) {
 			uint32_t colour = 0xFF000000u | ((uint32_t)top->VGA_B << 16) | ((uint32_t)top->VGA_G << 8) | (uint32_t)top->VGA_R;
 			video.Clock(top->VGA_HB, top->VGA_VB, top->VGA_HS, top->VGA_VS, colour);
+			if (trace_video_frame >= 0) {
+				static int pos = -1, line = 0, hs_up, hb_on, hb_off, lit0, lit1, vs0, vb0;
+				static uint8_t prev_hs = 0;
+				static std::string runs; static int run_lit = -1, run_len = 0;
+				uint8_t hs = top->VGA_HS;
+				bool lit = (colour & 0x00FFFFFFu) != 0;
+				if (!prev_hs && hs) {   // HS rises (sync starts): report the line that just ended
+					if (pos >= 0 && video.count_frame == trace_video_frame) {
+						printf("[video] line %3d len %3d hs_end %3d vis %3d..%3d lit %3d..%3d vs %d vb %d\n",
+							line, pos, hs_up, hb_on, hb_off, lit0, lit1, vs0, vb0);
+						if (line == trace_video_line) {
+							runs += (run_lit ? "L" : "d") + std::to_string(run_len);
+							printf("[video] line %3d runs from HS start: %s\n", line, runs.c_str());
+						}
+					}
+					runs.clear(); run_lit = -1; run_len = 0;
+					line = (!vs0 && top->VGA_VS) ? 0 : line + 1;
+					pos = 0; hs_up = hb_on = hb_off = lit0 = lit1 = -1;
+					vs0 = top->VGA_VS; vb0 = top->VGA_VB;
+				}
+				if (pos >= 0) {
+					if (!hs && hs_up < 0) hs_up = pos;
+					if (!top->VGA_HB && hb_on < 0) hb_on = pos;
+					if (top->VGA_HB && hb_on >= 0 && hb_off < 0) hb_off = pos;
+					if (lit) { if (lit0 < 0) lit0 = pos; lit1 = pos; }
+					if ((int)lit != run_lit) {
+						if (run_lit >= 0) runs += (run_lit ? "L" : "d") + std::to_string(run_len) + " ";
+						run_lit = lit; run_len = 0;
+					}
+					run_len++;
+					pos++;
+				}
+				prev_hs = hs;
+			}
 		}
 		prev_ce = ce;
 	}
@@ -522,6 +569,8 @@ static void usage(const char* argv0)
 	"  --layout uk|us|orig|game   OSD Keyboard layout (default uk)\n"
 	"  --charset original|xtra    OSD character set (default original)\n"
 	"  --dark                     OSD Background: Dark\n"
+	"  --border on|off            OSD Border (default off here: the goldens are 256x192;\n"
+	"                             on gives 371x243 with the 6847's border)\n"
 	"  --bbc                      OSD Mode: BBC (BBC BASIC ROMs)\n"
 	"  --speaker on|off, --sid on|off, --tape-audio on|off   OSD Audio (defaults on, on, off)\n"
 	"  --turbo 1|2|4|8            OSD CPU speed in MHz at reset (default 1; F1-F4 change it)\n"
@@ -529,6 +578,8 @@ static void usage(const char* argv0)
 	"  --osd-shift-break N[,...]  press the OSD Shift-BREAK button (AtoMMC menu)\n"
 	"  --osd-ctrl-break N[,...]   press the OSD Ctrl-BREAK button (no AtoMMC ROM: the tape)\n"
 	"  --trace-audio              per frame: range and change count of AUDIO_L\n"
+	"  --trace-video F[,L]        frame F's line timing (sync, blank, lit pixels) in pixel\n"
+	"                             clocks from the start of HS; with L, line L's lit/unlit runs\n"
 	"  --tape <file.uef>          load a tape (OSD Tape, ioctl index 1) at start\n"
 	"  --tape-at N                load the --tape image at frame N instead\n"
 	"  --tape-speed 8x|normal     OSD Tape speed (default 8x)\n"
@@ -578,6 +629,11 @@ int main(int argc, char** argv, char** env)
 		else if (a == "--screenshot")        screenshot_frames = int_list(next("--screenshot"));
 		else if (a == "--break")             break_frames = int_list(next("--break"));
 		else if (a == "--dark")              opt_dark = true;
+		else if (a == "--border") {
+			std::string v = next("--border");
+			if (v == "on") opt_border = true; else if (v == "off") opt_border = false;
+			else { printf("--border wants on or off\n"); return 1; }
+		}
 		else if (a == "--bbc")               opt_bbc = true;
 		else if (a == "--layout") {
 			std::string v = next("--layout");
@@ -608,6 +664,12 @@ int main(int argc, char** argv, char** env)
 		else if (a == "--tape-at")          tape_at_frame = atoi(next("--tape-at").c_str());
 		else if (a == "--rewind-at")        rewind_frames = int_list(next("--rewind-at"));
 		else if (a == "--trace-tape")       trace_tape = true;
+		else if (a == "--trace-video") {
+			std::string v = next("--trace-video");
+			trace_video_frame = atoi(v.c_str());
+			size_t c = v.find(',');
+			if (c != std::string::npos) trace_video_line = atoi(v.c_str() + c + 1);
+		}
 		else if (a == "--sloppy-shift")     sloppy_shift = true;
 		else if (a == "--tape-speed") { std::string v = next("--tape-speed"); opt_tape_fast = v != "normal"; }
 		else if (a == "--tape-overlay") { std::string v = next("--tape-overlay"); opt_tape_overlay = v != "off"; }
@@ -701,6 +763,8 @@ int main(int argc, char** argv, char** env)
 	top->layout = opt_layout;
 	top->charset = opt_charset;
 	top->dark_background = opt_dark;
+	top->border_en = opt_border;
+	if (opt_border) { vga_w = VGA_WIDTH_BORDER; vga_h = VGA_HEIGHT_BORDER; video = SimVideo(vga_w, vga_h, 0); }
 	top->bbc_mode = opt_bbc;
 	top->speaker_en = opt_speaker;
 	top->sid_en = opt_sid;
@@ -727,8 +791,8 @@ int main(int argc, char** argv, char** env)
 		input.Initialise();
 		if (video.Initialise("Acorn Atom") == 1) return 1;
 	} else if (!output_ptr) {
-		output_width  = VGA_WIDTH;
-		output_height = VGA_HEIGHT;
+		output_width  = vga_w;
+		output_height = vga_h;
 		output_ptr = (uint32_t*)calloc((size_t)output_width * output_height, 4);
 		if (!output_ptr) { fprintf(stderr, "framebuffer alloc failed\n"); return 2; }
 	}
@@ -774,7 +838,7 @@ int main(int argc, char** argv, char** env)
 		if (ImGui::Button("Screenshot")) save_screenshot(video.count_frame);
 		ImGui::End();
 		ImGui::Begin("Video");
-		ImGui::Image(video.texture_id, ImVec2(VGA_WIDTH * 3, VGA_HEIGHT * 3));
+		ImGui::Image(video.texture_id, ImVec2(vga_w * 3, vga_h * 3));
 		ImGui::End();
 		console.Draw("Log", nullptr, ImVec2(500, 400));
 		video.UpdateTexture();

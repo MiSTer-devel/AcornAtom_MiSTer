@@ -36,6 +36,10 @@ entity mc6847 is
             artifact_phase : in  std_logic;
             cvbs           : out std_logic_vector(7 downto 0);
             black_backgnd  : in  std_logic;
+            -- 15 kHz: '1' shows the border (green/buff in graphics modes, black
+            -- otherwise) and blanks only where the 6847 blanks; '0' shows the
+            -- 256x192 picture only
+            border         : in  std_logic := '1';
             char_a         : out std_logic_vector(11 downto 0);
             char_d_o       : in std_logic_vector(7 downto 0);
             pixel_clock    : out std_logic
@@ -52,55 +56,49 @@ architecture SYN of mc6847 is
     constant DEBUG_CSS      : std_logic                    := '1';
     constant DEBUG_INV      : std_logic                    := '0';
 
-    -- H_TOTAL_PER_LINE must be divisible by 16
-    -- so that sys_count is the same on each line when
-    -- the video comes out of hblank
-    -- so the phase relationship between char_d_o from the 6847 and character timing is maintained
+    -- VGA (scan-doubled) timing: AtomGodilVideo's, unchanged. This core runs
+    -- the 15 kHz (CVBS) side (CVBS_NOT_VGA), so these only drive PROC_VGA.
+    -- H_TOTAL_PER_LINE must be divisible by 16 so that the pixel phase is the
+    -- same on every line.
+    constant H_FRONT_PORCH    : integer := 8;
+    constant H_HORIZ_SYNC     : integer := H_FRONT_PORCH + 48;
+    constant H_BACK_PORCH     : integer := H_HORIZ_SYNC + 24;
+    constant H_LEFT_BORDER    : integer := H_BACK_PORCH + 32;
+    constant H_VIDEO          : integer := H_LEFT_BORDER + 256;
+    constant H_RIGHT_BORDER   : integer := H_VIDEO + 31;
+    constant H_TOTAL_PER_LINE : integer := H_RIGHT_BORDER;
 
-    -- 14.31818 MHz : 256 X 384    == 25 * 4 / 7   approx
--- constant H_FRONT_PORCH      : integer := 11-1 ; --11-1+1;
--- constant H_HORIZ_SYNC       : integer := H_FRONT_PORCH + 35+2;
--- constant H_BACK_PORCH       : integer := H_HORIZ_SYNC + 34+1;
--- constant H_LEFT_BORDER      : integer := H_BACK_PORCH + 61+1;--+3; -- adjust for hblank de-assert @sys_count=6
--- constant H_LEFT_RSTADDR     : integer := H_LEFT_BORDER -16;
--- constant H_VIDEO            : integer := H_LEFT_BORDER + 256;
--- -- constant H_RIGHT_BORDER     : integer := H_VIDEO + 61+1;---3;      -- "
--- constant H_RIGHT_BORDER     : integer := H_VIDEO + 54;---3;      -- tweak to get to 60hz exactly
--- constant H_TOTAL_PER_LINE   : integer := H_RIGHT_BORDER;
-
-
-
-  constant H_FRONT_PORCH      : integer := 11-1+1;
-  constant H_HORIZ_SYNC       : integer := H_FRONT_PORCH + 35+2;
-  constant H_BACK_PORCH       : integer := H_HORIZ_SYNC + 34+1+2; -- AJS
-  constant H_LEFT_BORDER      : integer := H_BACK_PORCH + 61+1+3 ; -- adjust for hblank de-assert @sys_count=6
-  constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16 +8;
-  constant H_VIDEO            : integer := H_LEFT_BORDER + 256;
-  -- The real MC6847 line is 228 chroma clocks (MAME mc6847.cpp: the datasheet
-  -- says 227.5, measurement says 228), i.e. 456 of the 7.159 MHz half-dots that
-  -- h_count counts (0..H_TOTAL_PER_LINE inclusive), 63.7 us, 15.70 kHz, 59.92 Hz
-  -- with 262 lines. The MiSTer sync/border tweaks above had grown the line to
-  -- 466 (15.36 kHz, 58.6 Hz); the surplus comes out of the right border, which
-  -- is blanked on this core anyway, so the active window keeps its place.
-  constant H_RIGHT_BORDER     : integer := H_VIDEO + 61+1-3-10;   -- 455 -> 456 clocks per line
-  constant H_TOTAL_PER_LINE   : integer := H_RIGHT_BORDER;
-
---    constant H_FRONT_PORCH    : integer := 8;
---    constant H_HORIZ_SYNC     : integer := H_FRONT_PORCH + 48;
---    constant H_BACK_PORCH     : integer := H_HORIZ_SYNC + 24;
---    constant H_LEFT_BORDER    : integer := H_BACK_PORCH + 32;  -- adjust for hblank de-assert @sys_count=6
---    constant H_LEFT_RSTADDR   : integer := H_LEFT_BORDER - 16;
---    constant H_VIDEO          : integer := H_LEFT_BORDER + 256;
---    constant H_RIGHT_BORDER   : integer := H_VIDEO + 31;       -- "
---    constant H_TOTAL_PER_LINE : integer := H_RIGHT_BORDER;
-
-    constant V2_FRONT_PORCH     : integer := 2;
-    constant V2_VERTICAL_SYNC   : integer := V2_FRONT_PORCH + 2;
-    constant V2_BACK_PORCH      : integer := V2_VERTICAL_SYNC + 12;
-    constant V2_TOP_BORDER      : integer := V2_BACK_PORCH + 26;  -- + 25;  -- +25 for PAL
-    constant V2_VIDEO           : integer := V2_TOP_BORDER + 192;
-    constant V2_BOTTOM_BORDER   : integer := V2_VIDEO + 27;  -- + 25;       -- +25 for PAL
-    constant V2_TOTAL_PER_FIELD : integer := V2_BOTTOM_BORDER;
+    -- 15 kHz timing: the MC6847 datasheet (Motorola 1984, refs/docs/chips).
+    -- One count is one pixel, half a 3.58 MHz period (1/f): the datasheet's
+    -- times doubled. Counted from the leading edge of horizontal sync:
+    --   sync 35 (tHBNK 42 - front porch 7 - back porch 17.5 = 17.5 x 1/f),
+    --   back porch 35 (17.5), left border 59 (29.5), picture 256 (128),
+    --   right border 56 (28), front porch 14 (7): 455 (227.5 x 1/f), 63.56 us.
+    constant C_HS_END    : integer := 35;
+    constant C_BORDER_L  : integer := C_HS_END + 35;        --  70
+    constant C_PIC       : integer := C_BORDER_L + 59;      -- 129
+    constant C_BORDER_R  : integer := C_PIC + 256;          -- 385
+    constant C_BLANK     : integer := C_BORDER_R + 56;      -- 441
+    constant C_LINE      : integer := C_BLANK + 14;         -- 455
+    -- The fetch runs ahead of the output: a byte is addressed, read, latched
+    -- into the shifter and the pixel registered at the output, so the first
+    -- pixel comes out C_PIPE counts after the fetch window opens (measured in
+    -- the Verilator sim with --trace-video). The address counter starts 8
+    -- counts before the window, as AtomGodilVideo's does.
+    constant C_PIPE      : integer := 2;
+    constant C_FETCH     : integer := C_PIC - C_PIPE;
+    constant C_FETCH_RST : integer := C_FETCH - 8;
+    -- Vertical, in lines, counted from the first picture line (datasheet
+    -- Figure 13): picture 192, bottom border 26, vertical retrace 6
+    -- (3 blank lines, then 3 of vertical sync), vertical blanking 13, top
+    -- border 25: 262 lines, 59.94 Hz. FS goes low at the end of the picture
+    -- and high at the end of vertical sync: 32 lines (Figure 8, tWFS).
+    constant V_PIC_END   : integer := 192;
+    constant V_BORDER_END: integer := V_PIC_END + 26;       -- 218
+    constant V_VS        : integer := V_BORDER_END + 3;     -- 221
+    constant V_VS_END    : integer := V_VS + 3;             -- 224: FS rises
+    constant V_BORDER_T  : integer := V_VS_END + 13;        -- 237
+    constant V_LAST      : integer := V_BORDER_T + 25 - 1;  -- 261
 
     -- internal version of control ports
     signal an_g_s     : std_logic;
@@ -131,6 +129,9 @@ architecture SYN of mc6847 is
     signal cvbs_vborder      : std_logic;
     signal cvbs_linebuf_we   : std_logic;
     signal cvbs_linebuf_addr : std_logic_vector(8 downto 0);
+    -- where PROC_OUTPUT's next pixel is (set by PROC_CVBS): in horizontal /
+    -- vertical sync, in the picture, in the visible area (picture + border)
+    signal o_hs, o_vs, o_hpic, o_vpic, o_hvis, o_vvis : std_logic;
 
     signal active_h_start : std_logic := '0';
     signal an_s_r         : std_logic;
@@ -293,66 +294,77 @@ begin
         end if;
     end process;
 
-    -- generate horizontal timing f or CVBS
-    -- generate line buffer address for writing CVBS char_d_o
+    -- 15 kHz timing (constants above) and the fetch for the line buffer.
+    -- h_count 0 is the leading edge of horizontal sync. The fetch window
+    -- (cvbs_hblank low) opens at C_FETCH, C_PIPE counts before its first
+    -- pixel leaves PROC_OUTPUT at C_PIC. The o_* flags say where the pixel
+    -- leaving PROC_OUTPUT is on the screen: they are set one count early,
+    -- because PROC_OUTPUT registers them again with the pixel.
     PROC_CVBS : process (clk, reset)
-        variable h_count        : integer range 0 to H_TOTAL_PER_LINE;
+        variable h_count        : integer range 0 to C_LINE - 1;
+        variable hpos           : integer range 0 to C_LINE - 1;
+        variable v              : integer range 0 to 511;
         variable active_h_count : std_logic_vector(7 downto 0);
         variable cvbs_hblank_r  : std_logic := '0';
-        --variable row_v : std_logic_vector(3 downto 0);
-        -- for debug only
         variable videoaddr_base : std_logic_vector(12 downto 0);
-        
+
     begin
         if reset = '1' then
 
-            h_count        := H_TOTAL_PER_LINE;
-            v_count        := std_logic_vector(to_unsigned(V2_TOTAL_PER_FIELD, v_count'length));
+            h_count        := C_LINE - 1;
+            v_count        := std_logic_vector(to_unsigned(V_LAST, v_count'length));
             active_h_count := (others => '0');
             active_h_start <= '0';
             cvbs_hsync     <= '1';
             cvbs_vsync     <= '1';
-            cvbs_hblank    <= '0';
+            cvbs_hblank    <= '1';
             cvbs_vblank    <= '1';
+            cvbs_vborder   <= '0';
             vga_vblank     <= '1';
+            fs_int         <= '1';
+            o_hs           <= '0';
+            o_vs           <= '0';
+            o_hpic         <= '0';
+            o_vpic         <= '0';
+            o_hvis         <= '0';
+            o_vvis         <= '0';
             da0_int        <= (others => '0');
             cvbs_hblank_r  := '0';
             row_v          := (others => '0');
-            
+
         elsif rising_edge (clk) and cvbs_clk_ena = '1' then
 
             active_h_start <= '0';
-            if h_count = H_TOTAL_PER_LINE then
+            if h_count = C_LINE - 1 then
                 h_count := 0;
-                if v_count = V2_TOTAL_PER_FIELD then
+                if v_count = V_LAST then
                     v_count := (others => '0');
                 else
                     v_count := v_count + 1;
                 end if;
+                v := to_integer(unsigned(v_count));
 
                 -- VGA vblank is 1 line behind CVBS
                 -- - because we need to fill the line buffer
                 vga_vblank <= cvbs_vblank;
 
-                if v_count = V2_FRONT_PORCH then
-                    cvbs_vsync <= '0';
-                elsif v_count = V2_VERTICAL_SYNC then
-                    cvbs_vsync <= '1';
-                    fs_int <= '0';
-                elsif v_count = V2_BACK_PORCH then
-                    cvbs_vborder <= '1';
-                elsif v_count = V2_TOP_BORDER then
+                -- vertical events at the start of line v
+                if v = 0 then
                     cvbs_vblank    <= '0';
                     row_v          := (others => '0');
                     videoaddr_base := (others => '0');
                     tripletaddr    <= (others => '0');
                     tripletcnt     <= (others => '0');
-                elsif v_count = V2_VIDEO then
+                elsif v = V_PIC_END then
                     cvbs_vblank <= '1';
-                    fs_int <= '1';
-                elsif v_count = V2_BOTTOM_BORDER then
-                    cvbs_vborder <= '0';
+                    fs_int      <= '1';
+                elsif v = V_VS then
+                    cvbs_vsync <= '0';
+                elsif v = V_VS_END then
+                    cvbs_vsync <= '1';
+                    fs_int     <= '0';
                 else
+                    -- the next picture line: video address and character row
                     if an_g_s = '0' then
                         if (row_v = 11) then
                             videoaddr_base := videoaddr_base + 32;
@@ -374,11 +386,11 @@ begin
                             when "100" =>
                                 if (row_v(0) = '1') then
                                     videoaddr_base := videoaddr_base + 32;
-                                end if;                            
+                                end if;
                             when "101" =>
-                                    videoaddr_base := videoaddr_base + 16; 
+                                    videoaddr_base := videoaddr_base + 16;
                             when "110" | "111" =>
-                                    videoaddr_base := videoaddr_base + 32; 
+                                    videoaddr_base := videoaddr_base + 32;
                             when others =>
                                 null;
                         end case;
@@ -395,32 +407,46 @@ begin
                         row_v := row_v + 1;
                     end if;
                 end if;
+
+                -- where the lines of this field are on the screen
+                if v < V_PIC_END then o_vpic <= '1'; else o_vpic <= '0'; end if;
+                if v < V_BORDER_END or v >= V_BORDER_T then o_vvis <= '1'; else o_vvis <= '0'; end if;
+                if v >= V_VS and v < V_VS_END then o_vs <= '1'; else o_vs <= '0'; end if;
+                if v >= V_PIC_END and v < V_BORDER_END then cvbs_vborder <= '1';
+                elsif v >= V_BORDER_T then cvbs_vborder <= '1';
+                else cvbs_vborder <= '0'; end if;
             else
                 h_count := h_count + 1;
 
-                if h_count = H_FRONT_PORCH then
-                    cvbs_hsync <= '0';
-                elsif h_count = H_HORIZ_SYNC then
-                    cvbs_hsync <= '1';
-                elsif h_count = H_BACK_PORCH then
-                elsif h_count = H_LEFT_RSTADDR then
+                -- the fetch: the address counter starts 8 counts before the
+                -- window and holds for the count the window opens on
+                if h_count = C_FETCH_RST then
                     active_h_count := (others => '0');
-                elsif h_count = H_LEFT_BORDER then
+                elsif h_count = C_FETCH then
                     cvbs_hblank    <= '0';
-                elsif h_count = H_VIDEO -1 then
-                    active_h_start<='1'; -- ajs - try to move over by one
-                elsif h_count = H_VIDEO then
+                elsif h_count = C_FETCH + 256 then
                     cvbs_hblank    <= '1';
-                --    active_h_start <= '1';
                     active_h_count := active_h_count + 1;
-                elsif h_count = H_RIGHT_BORDER then
-                    null;
                 else
                     active_h_count := active_h_count + 1;
                 end if;
             end if;
 
-            -- generate character rom address
+            -- The shifter's phase starts with the window, so every mode
+            -- (8 or 16 pixels per byte) latches its first byte as the window
+            -- opens, whatever the line length.
+            if h_count = C_FETCH - 1 then
+                active_h_start <= '1';
+            end if;
+
+            -- where the next count's pixel is on the screen
+            if h_count = C_LINE - 1 then hpos := 0; else hpos := h_count + 1; end if;
+            if hpos < C_HS_END then o_hs <= '1'; else o_hs <= '0'; end if;
+            if hpos >= C_PIC and hpos < C_BORDER_R then o_hpic <= '1'; else o_hpic <= '0'; end if;
+            if hpos >= C_BORDER_L and hpos < C_BLANK then o_hvis <= '1'; else o_hvis <= '0'; end if;
+            if hpos < C_HS_END then cvbs_hsync <= '0'; else cvbs_hsync <= '1'; end if;
+
+    -- generate character rom address
             char_a <= dd(7 downto 0) & row_v(3 downto 0);
 
             -- DA0 high during FS
@@ -635,14 +661,29 @@ begin
             count := '0';
         elsif rising_edge(clk) then
             if CVBS_NOT_VGA then
+                -- the pixel, its sync and its blanking leave together
                 if cvbs_clk_ena = '1' then
-                    if cvbs_hblank = '0' and cvbs_vblank = '0' then
-                        --map_palette (vga_char_d_o, r, g, b);
-								map_palette (pixel_char_d_o,r,g,b);
+                    if o_hpic = '1' and o_vpic = '1' then
+                        map_palette (pixel_char_d_o, r, g, b);
+                    elsif border = '1' and o_hvis = '1' and o_vvis = '1' and an_g_s = '1' then
+                        -- graphics modes: the border is green or buff (CSS)
+                        map_palette ("00001" & css_s & "00", r, g, b);
                     else
                         r := (others => '0');
                         g := (others => '0');
                         b := (others => '0');
+                    end if;
+                    red    <= r;
+                    green  <= g;
+                    blue   <= b;
+                    hsync  <= not o_hs;
+                    vsync  <= not o_vs;
+                    if border = '1' then
+                        hblank <= not o_hvis;
+                        vblank <= not o_vvis;
+                    else
+                        hblank <= not o_hpic;
+                        vblank <= not o_vpic;
                     end if;
                 end if;
             else
@@ -682,27 +723,20 @@ begin
                         g := (others => '0');
                         b := (others => '0');
                     end if;
+                    -- as AtomGodilVideo 52ded1f: syncs registered with the pixel
+                    red    <= r;
+                    green  <= g;
+                    blue   <= b;
+                    hsync  <= vga_hsync;
+                    vsync  <= vga_vsync;
+                    hblank <= not vga_hborder;
+                    vblank <= not cvbs_vborder;
                 end if;
             end if;  -- CVBS_NOT_VGA
-            red <= r; green <= g; blue <= b;
         end if;  -- rising_edge(clk)
-
-
-        if CVBS_NOT_VGA then
-            hsync  <= cvbs_hsync;
-            vsync  <= cvbs_vsync;
-            hblank <= cvbs_hblank;
-            vblank <= cvbs_vblank;
-            pixel_clock<=cvbs_clk_ena;
-        else
-            hsync  <= vga_hsync;
-            vsync  <= vga_vsync;
-            hblank <= not vga_hborder;
-            vblank <= not cvbs_vborder;
-            pixel_clock<=vga_clk_ena;
-        end if;
-
     end process PROC_OUTPUT;
+
+    pixel_clock <= cvbs_clk_ena when CVBS_NOT_VGA else vga_clk_ena;
 
 -- line buffer for scan doubler gives us vga monitor compatible output
     process (clk)

@@ -9,15 +9,22 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
 
 ## Features
 * 32KB ram
-* System Roms with mmc (to access the SD card)
+* System Roms with mmc (to access the SD card): AtoMMC 3.02
 * Seven additional Roms and 1 slot of ram to download additional Rom.
 * Two character sets.
 * Tape: UEF images (plain or gzipped) from the OSD (Tape), played at 8x with a status bar and a hint that says what to type; tape input through the MiSTer's ADC too
 * Sound is mixed: the speaker, the SID and the tape tone, each with an on/off switch
 * Black or Dark background
+* MC6847 video with the datasheet's 15 kHz timing (455 pixel clocks a line, 262 lines,
+  59.94 Hz) and its border: green or buff around graphics modes, black around text
+  (Video, Border: On/Off; Off shows only the 256x192 picture)
+* GODIL extensions (from AtomGodilVideo): two 8 KB video RAM banks (#BDE0 bits 4 and 5,
+  as Bad Apple uses), the mouse and pointer (#BDE8-#BDEA, for Atomic Windows; MiSTer's
+  mouse moves it), the version register (#BDEF)
 * Atom or BBC Basic mode
 * Colour palette
 * SID sound
+* The 6502 at 1 MHz from an exact 32 MHz clock, as on the Atom
 * Turbo mode (F1-F4), or a CPU speed chosen in the OSD and applied at reset
 * BREAK on F10, Shift-BREAK (AtoMMC menu) on F9, Ctrl-BREAK (no AtoMMC, for tapes) on F11; also OSD buttons
 * Four keyboards: PC (US, the default), PC (UK), Atom (original), Atom (game)
