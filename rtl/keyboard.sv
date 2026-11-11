@@ -865,7 +865,21 @@ always @(posedge clk) begin
 			
 				endcase
 			end
-			
+
+	// The Atom's SHIFT line, after the tables above (the last assignment wins):
+	// - A Shift key drives it at once. The US, original and game tables only
+	//   noted Shift for the next key, so Shift alone never reached the Atom
+	//   (the AtoMMC menu's "down" and Centipede's fire are Shift alone).
+	// - A key that needs the other Shift state on the Atom (the cursor keys,
+	//   US " ' ^ ...) forces it while down; its release gives it back to the
+	//   Shift keys. Down left Shift held: the AtoMMC menu kept scrolling.
+	if (key_strobe && clk_en) begin
+		if (code == 'h059 || code == (layout == 2'b11 ? 9'h014 : 9'h012))
+			shift_out <= ~key_press;
+		else if (!key_press)
+			shift_out <= shift_press;
+	end
+
 end
 
 endmodule
