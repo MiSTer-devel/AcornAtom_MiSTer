@@ -40,6 +40,8 @@ run print 200 --send-keys '60:PRINT 1+1\n'
 # must read released (#B001 bit 7 = 128) while BASIC runs (the AtoMMC menu kept
 # scrolling when it stayed down).
 run kbd_shift_release 560 --send-keys '60:F.I=1TO1500;N.;P.?#B001&#80\n' --send-keys '260:\D'
+# 8255 bit set/reset: #B003=7 sets PC3 (the 6847's CSS: yellow text), not PC2
+run ppi_bit_set 500 --send-keys '60:?#B003=7;P.?#B002&8\n'
 # Undecoded #Bxxx reads #F1 (241) and ignores writes, as upstream; #B000 is the 8255.
 run unmapped 640 --send-keys '60:P.?#BC00;?#B500=5;P.?#B500;P.?#B000\n'
 # GODIL registers and video RAM banks (#BDE0 bit 4 = CPU bank, bit 5 = 6847
