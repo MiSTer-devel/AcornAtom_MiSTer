@@ -60,6 +60,12 @@ reg  [511:0]	press_shifted = 512'd0;
 wire			unshifted = key_press ? shift_press : ~press_shifted[code];
 always @(posedge clk) if (key_strobe && clk_en && key_press) press_shifted[code] <= ~shift_press;
 
+// Left Alt picks where Shift 0 goes, so 0 is released where Alt sent it:
+// Alt let go before 0 left Atom Shift 0 held.
+reg				zero_alt = 1'b0;
+wire			alt = key_press ? left_alt : zero_alt;
+always @(posedge clk) if (key_strobe && clk_en && key_press && code == 'h045) zero_alt <= left_alt;
+
 // ---------------------------------------------------------------------------
 // The tables. Each entry gives the key's matrix position and, for some PC
 // keys, the Atom's SHIFT line while the key is down (SH = shifted, NS = not
@@ -220,7 +226,7 @@ endfunction
 
 wire [9:0] key = !pc_layout ? atom_key(code)
                : unshifted  ? pc_key_unshifted(layout == UK, code)
-               :              pc_key_shifted(layout == UK, left_alt, code);
+               :              pc_key_shifted(layout == UK, alt, code);
 wire       key_hit    = key[9];
 wire [1:0] key_shift  = key[8:7];
 wire [3:0] key_row    = key[6:3];
