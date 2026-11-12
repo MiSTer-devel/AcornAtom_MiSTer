@@ -42,10 +42,7 @@ assign HDMI_FREEZE = 0;
 assign HDMI_BLACKOUT = 0;
 assign HDMI_BOB_DEINT = 0;
 
-wire [1:0] ar = cfg[12:11];
-
-assign VIDEO_ARX = (!ar) ? 12'd4 : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
+// Aspect ratio: below, after vga80_on.
 
 
 `include "build_id.v" 
@@ -508,6 +505,20 @@ assign AUDIO_S = 1'b1;
 
 wire hs, vs, hblank, vblank,  clk_sel;
 wire field, vga80_on;   // GODIL VGA80x40: 640x480 interlaced, field 1 = top
+
+// Aspect ratio "Original": the shape the frame has on a TV. At 15 kHz a
+// square pixel is 780 clocks a line and a 240p line is two pixels tall; the
+// 6847 draws 455 a line, so its pixel is 12/7 wide.
+// - Border On: 371x243 (59 + 256 + 56 by 25 + 192 + 26) is 636:486 = 106:81.
+// - Border Off: the 256x192 picture is 439:384 = 8:7 (it was shown at 4:3,
+//   17% too wide).
+// - VGA80x40: 4:3, as on the GODIL's VGA monitor (square pixels at 31 kHz).
+wire [1:0] ar = cfg[12:11];
+wire [7:0] ar_x = vga80_on ? 8'd4 : cfg[23] ? 8'd8 : 8'd106;
+wire [7:0] ar_y = vga80_on ? 8'd3 : cfg[23] ? 8'd7 : 8'd81;
+
+assign VIDEO_ARX = (!ar) ? {5'd0, ar_x} : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? {5'd0, ar_y} : 12'd0;
 wire [1:0] r,g,b;
 
 assign CLK_VIDEO = clk_42;// clk_25;
