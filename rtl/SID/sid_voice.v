@@ -11,7 +11,8 @@
 
 module sid_voice
   (
-     input         clk_1MHz , // this line drives the oscilator
+     input         clk , // system clock (clk32)
+     input         ce_1MHz , // one-cycle enable at the SID's 1 MHz rate: this drives the oscillator
      input         reset , // active high signal (i.e. registers are reset when reset=1)
      input [7:0]   Freq_lo , // low-byte of frequency register
      input [7:0]   Freq_hi , // high-byte of frequency register
@@ -137,7 +138,7 @@ module sid_voice
    // self-contained and there was no room at all for a wavetable on the chip."
    // "Hard Sync was accomplished by clearing the accumulator of an Oscillator
    // based on the accumulator MSB of the previous oscillator."
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         PA_MSB_in_prev <= PA_MSB_in;
         // the reset and test signal can stop the oscillator,
@@ -152,7 +153,7 @@ module sid_voice
    // Sawtooth waveform :
    // "The Sawtooth waveform was created by sending the upper 12-bits of the
    // accumulator to the 12-bit Waveform D/A."
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         sawtooth <= accumulator[23:12];
      end
@@ -162,7 +163,7 @@ module sid_voice
    // accumulator to a 12-bit digital comparator. The output of the comparator was
    // either a one or a zero. This single output was then sent to all 12 bits of
    // the Waveform D/A. "
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         if ((accumulator[23:12]) >= pulsewidth)
           pulse <= 1'b1;
@@ -180,7 +181,7 @@ module sid_voice
    // oscillator in the EXOR function of the triangle waveform generator with the
    // accumulator MSB of the previous oscillator. That is why the triangle waveform
    // must be selected to use Ring Modulation."
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         if (ringmod == 1'b0)
           begin
@@ -226,7 +227,7 @@ module sid_voice
    // The upper 12-bits of the shift register were sent to the Waveform D/A."
    assign noise = LFSR[22:11];
 
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         // the test signal can stop the oscillator,
         // stopping the oscillator is very useful when you want to play "samples"
@@ -262,7 +263,7 @@ module sid_voice
    // which produced unpredictable results, so I didn't encourage this, especially
    // since it could lock up the pseudo-random sequence generator by filling it
    // with zeroes."
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
          signal_mux[11] <= (triangle[11] & Control[4]) | (sawtooth[11] & Control[5]) | (pulse & Control[6]) | (noise[11] & Control[7]);
          signal_mux[10] <= (triangle[10] & Control[4]) | (sawtooth[10] & Control[5]) | (pulse & Control[6]) | (noise[10] & Control[7]);
@@ -287,7 +288,7 @@ module sid_voice
    // D/A converter to modulate the amplitude of the selected Oscillator Waveform
    // (to be technically accurate, actually the waveform was modulating the output
    // of the Envelope Generator, but the result is the same)."
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         //calculate the resulting volume (due to the envelope generator) of the
         //voice, signal_mux(12bit) * env_counter(8bit), so the result will
@@ -311,11 +312,11 @@ module sid_voice
    //    attack|dec|sustain|rel
 
    // this process controls the state machine "current-state"-value
-   always @(posedge clk_1MHz, posedge reset)
+   always @(posedge clk, posedge reset)
      begin
         if (reset == 1'b1)
           cur_state <= `st_idle;
-        else
+        else if (ce_1MHz)
           cur_state <= next_state;
      end
 
@@ -470,7 +471,7 @@ module sid_voice
      end
 
    // 8 bit up/down env_counter
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         if ((reset == 1'b1) | (env_cnt_clear == 1'b1))
           env_counter <= 0;
@@ -500,7 +501,7 @@ module sid_voice
    // subjectively by setting up typical patches on a Sequential Circuits Pro-1
    // and measuring the envelope times by ear (which is why the available rates
    // seem strange)!"
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         if ((reset == 1'b1) | (divider_rst == 1'b1))
           begin
@@ -535,7 +536,7 @@ module sid_voice
    // sounded fine."
    // The clock is divided by two at specific values of the envelope generator to
    // create an exponential.
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         if (reset == 1'b1)
           exp_table_value   <= 0;
@@ -555,7 +556,7 @@ module sid_voice
    // Attack Lookup table :
    // It takes 255 clock cycles from zero to peak value. Therefore the divider
    // equals (attack rate / clockcycletime of 1MHz clock) / 254;
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         if (reset == 1'b1)
           divider_attack <= 0;
@@ -593,7 +594,7 @@ module sid_voice
    // It takes 32 * 51 == 1632 clock cycles to fall from peak level to zero.
    // Release Lookup table :
    // It takes 32 * 51 == 1632 clock cycles to fall from peak level to zero.
-   always @(posedge clk_1MHz)
+   always @(posedge clk) if (ce_1MHz)
      begin
         if (reset == 1'b1)
           divider_dec_rel <= 0;

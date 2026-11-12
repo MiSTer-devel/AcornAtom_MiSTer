@@ -1,0 +1,13 @@
+obj_dir/
+gen/
+ghdl_work/
+atom192k.hex
+*.png
+*.bin
+imgui.ini
+tests/out/
+!tests/golden/*.png
+tests/gunzip/obj/
+tests/gunzip/obj.log
+tests/csw/obj/
+tests/csw/obj.log

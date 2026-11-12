@@ -58,6 +58,11 @@
 	set_global_assignment -name VHDL_FILE rtl/AVR8/Memory/XPM_AtoMMC2.vhd
 
 	set_global_assignment -name VHDL_FILE rtl/MC6847/mc6847.vhd
+	set_global_assignment -name VHDL_FILE rtl/godil/Pointer.vhd
+	set_global_assignment -name VHDL_FILE rtl/godil/PointerRamBlack.vhd
+	set_global_assignment -name VHDL_FILE rtl/godil/PointerRamWhite.vhd
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/godil_mouse.sv
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/godil_vga80.sv
     set_global_assignment -name VHDL_FILE rtl/MC6847/CharRom.vhd
 	set_global_assignment -name VHDL_FILE rtl/MC6847/CharRomx.vhd
     set_global_assignment -name VHDL_FILE rtl/MC6847/VideoRam.vhd
@@ -69,6 +74,17 @@
     set_global_assignment -name VERILOG_FILE rtl/SID/sid_voice.v
 
 	set_global_assignment -name SYSTEMVERILOG_FILE rtl/keyboard.sv
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/audio_mix.sv
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/break_keys.sv
 
 	set_global_assignment -name VHDL_FILE rtl/AtomFpga_Core.vhd
 	set_global_assignment -name SYSTEMVERILOG_FILE AcornAtom.sv
+	set_global_assignment -name VERILOG_FILE rtl/pll_cpu.v
+	set_instance_assignment -name PLL_COMPENSATION_MODE DIRECT -to "*pll_cpu*|altera_pll:altera_pll_i*|*"
+	set_instance_assignment -name PLL_AUTO_RESET ON -to "*pll_cpu*|altera_pll:altera_pll_i*|*"
+	set_instance_assignment -name PLL_BANDWIDTH_PRESET AUTO -to "*pll_cpu*|altera_pll:altera_pll_i*|*"
+	set_global_assignment -name SDC_FILE AcornAtom.sdc
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/gunzip.sv
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/csw_in.sv
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/atom_tape.sv
+	set_global_assignment -name SYSTEMVERILOG_FILE rtl/tape_overlay.sv

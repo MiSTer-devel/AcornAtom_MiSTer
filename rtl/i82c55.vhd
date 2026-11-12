@@ -39,7 +39,7 @@ begin
         if (RESET = '0') then
             r_porta  <= x"00";
             r_portb  <= x"00";
-            l_portc  <= x"0";
+            l_portc  <= x"F";
             h_portc  <= x"0";
             ctrl_reg <= x"00";
         elsif rising_edge(CLK) then
@@ -55,7 +55,11 @@ begin
                                         --when "01" => r_portb   <= I_DATA;
                             when "10" => l_portc <= I_DATA (3 downto 0);
                             when "11" => if (I_DATA(7) = '0') then  -- set/clr
-                                             l_portc(2) <= I_DATA(0);
+                                             -- bit I_DATA(3:1) of port C, as on the 8255
+                                             -- (this always wrote PC2); PC4-7 are inputs
+                                             if I_DATA(3) = '0' then
+                                                 l_portc(to_integer(unsigned(I_DATA(2 downto 1)))) <= I_DATA(0);
+                                             end if;
                                          else
                                              ctrl_reg <= I_DATA;
                                          end if;

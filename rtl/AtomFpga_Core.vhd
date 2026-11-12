@@ -33,7 +33,21 @@ entity AtomFpga_Core is
 		  ps2_key			 : in 	std_logic_vector (10 downto 0);
 		  layout				 : in    std_logic_vector(1 downto 0);
 		  BLACK_BACKGND	 : in    std_logic;
+        border           : in    std_logic := '1';  -- 6847 border shown (OSD)
 		  computer 			 : in    std_logic;
+        turbo_default    : in    std_logic_vector(1 downto 0) := "00"; -- CPU speed at reset (OSD)
+        osd_break        : in    std_logic := '0';  -- BREAK from the OSD (level; hold it a few ms)
+        tape_turbo       : in    std_logic := '0';  -- the tape deck plays fast: CPU at 8 MHz
+        osd_shift        : in    std_logic := '0';  -- OSD Shift-BREAK: SHIFT held down (8255 PB7)
+        osd_ctrl         : in    std_logic := '0';  -- OSD Ctrl-BREAK: CTRL held down (8255 PB6)
+        cas_tick         : out   std_logic;         -- one clk_main per 2.4 kHz half cycle (scales with the CPU speed)
+        cpu_addr_o       : out   std_logic_vector(15 downto 0); -- for the tape deck: where the CPU is
+        cpu_clken_o      : out   std_logic;
+        -- GODIL mouse (rtl/godil_mouse.sv): pointer position, x 0..255 from the
+        -- left, y 0..191 from the top, and the buttons {middle, right, left}
+        mouse_x          : in    std_logic_vector(7 downto 0) := x"80";
+        mouse_y          : in    std_logic_vector(7 downto 0) := x"60";
+        mouse_buttons    : in    std_logic_vector(2 downto 0) := "000";
 
         -- Resets
 --        powerup_reset_n  : in    std_logic := '1'; -- power up reset only (optional)
@@ -47,6 +61,8 @@ entity AtomFpga_Core is
         hsync            : out   std_logic;
         vblank           : out   std_logic;
 		  hblank           : out   std_logic;
+        field            : out   std_logic;  -- VGA80 interlace: 1 = top field (VGA_F1); 1 otherwise
+        vga80_on         : out   std_logic;  -- VGA80x40 is on the screen (clk_vid)
 		  
         -- External 6502 bus interface
         ExternWE         : out   std_logic;
@@ -149,8 +165,35 @@ architecture BEHAVIORAL of AtomFpga_Core is
     -- Port A connects to Atom and is read/write
     -- Port B connects to MC6847 and is read only
     signal vid_dout : std_logic_vector (7 downto 0);
+    -- GODIL video RAM banks (AtomGodilVideo CImplDoubleVideo): two 8 KB banks
+    -- at #8000-#9FFF; #BDE0 bit 4 picks the CPU's bank, bit 5 the 6847's.
+    signal bank0_douta, bank1_douta : std_logic_vector (7 downto 0);
+    signal bank0_doutb, bank1_doutb : std_logic_vector (7 downto 0);
+    signal bank0_we, bank1_we       : std_logic;
+    signal bank_sela                : std_logic;
+    signal bank_selb_s              : std_logic_vector (1 downto 0);  -- bit 5 synchronised to clk_vid
+    -- GODIL registers #BDE0-#BDFF (see refs/video/AtomGodilVideo.wiki, memory map)
+    signal godil_cs     : std_logic;
+    signal godil_dout   : std_logic_vector (7 downto 0);
+    signal extensions   : std_logic_vector (7 downto 0);  -- #BDE0 mode extension register
+    -- GODIL mouse pointer (#BDE8-#BDEA, rtl/godil/Pointer.vhd)
+    signal pointer_nr   : std_logic_vector (7 downto 0);  -- #BDEA: bit 7 off, bits 4-0 image
+    signal vid_data_raw : std_logic_vector (7 downto 0);  -- video RAM data before the pointer
+    signal ptr_s0, ptr_s1 : std_logic_vector (21 downto 0); -- {on, image, x, y} into clk_vid
     signal vid_addr : std_logic_vector (12 downto 0);
     signal vid_data : std_logic_vector (7 downto 0);
+    -- GODIL VGA80x40 (#BDE0 bit 7, rtl/godil_vga80.sv): 640x480 interlaced
+    signal ocrx, ocry   : std_logic_vector (7 downto 0);  -- #BDE2/#BDE3 cursor column/row
+    signal octl, octl2  : std_logic_vector (7 downto 0);  -- #BDE4/#BDE5 control
+    signal vga80_s      : std_logic_vector (1 downto 0);  -- bit 7 synchronised to clk_vid
+    signal vga80        : std_logic;
+    signal mc_vid_addr  : std_logic_vector (12 downto 0);
+    signal mc_char_a    : std_logic_vector (11 downto 0);
+    signal mc_pixel_clock : std_logic;
+    signal v80_addr     : std_logic_vector (12 downto 0);
+    signal v80_font_a   : std_logic_vector (11 downto 0);
+    signal v80_r, v80_g, v80_b : std_logic;
+    signal v80_hsync, v80_vsync, v80_hblank, v80_vblank, v80_field : std_logic;
 
 	     -- Colour palette registers
     signal logical_colour  : std_logic_vector(3 downto 0);
@@ -237,12 +280,15 @@ architecture BEHAVIORAL of AtomFpga_Core is
 ----------------------------------------------------
 
     signal pl8_cs       : std_logic;
-	 signal spi_cs			: std_logic;
 	 signal A000_cs		: std_logic;
 	 signal RomLatch     : std_logic_vector (2 downto 0); 
 	 signal BFFF_Enable : std_logic;    
     signal RegBFFF     : std_logic_vector (7 downto 0);
-	 signal spi_dout     : std_logic_vector (7 downto 0);
+    -- Unused outputs that VHDL requires to be associated (partial-open associations crash ghdl and
+    -- draw Quartus critical warning 10920). Quartus removes them as dead logic.
+    signal cpu_addr_hi  : std_logic_vector(7 downto 0);
+    signal avr_portb_nc : std_logic_vector(7 downto 0);
+    signal avr_portd_nc : std_logic_vector(7 downto 0);
     signal pl8_data     : std_logic_vector (7 downto 0);
     signal nARD         : std_logic;
     signal nAWR         : std_logic;
@@ -257,7 +303,8 @@ architecture BEHAVIORAL of AtomFpga_Core is
 	 
     -- Internal 1MHz clocks for SID
  
-    signal clk_sid_1MHz : std_logic;
+    signal sid_ce_1MHz  : std_logic;
+    signal sid_div      : unsigned(4 downto 0) := (others => '0');
 	 
 	 signal reset_vid : std_logic;
 
@@ -272,6 +319,7 @@ component keyboard
 				clk_en		: in  std_logic;
             reset    	: in  std_logic;
 				layout		: in  std_logic_vector(1 downto 0);
+				turbo_default : in std_logic_vector(1 downto 0);
 				ps2_key		: in  std_logic_vector(10 downto 0);
 				row			: in  std_logic_vector(3  downto 0);
 				joy1			: in  std_logic_vector(15 downto 0);
@@ -285,10 +333,34 @@ component keyboard
             );
     end component;
 	 
+	 component godil_vga80
+		port(
+			clk       : in  std_logic;
+			ce        : in  std_logic;
+			reset     : in  std_logic;
+			ocrx      : in  std_logic_vector(7 downto 0);
+			ocry      : in  std_logic_vector(7 downto 0);
+			octl      : in  std_logic_vector(7 downto 0);
+			octl2     : in  std_logic_vector(7 downto 0);
+			ram_addr  : out std_logic_vector(12 downto 0);
+			ram_data  : in  std_logic_vector(7 downto 0);
+			font_addr : out std_logic_vector(11 downto 0);
+			font_data : in  std_logic_vector(7 downto 0);
+			r         : out std_logic;
+			g         : out std_logic;
+			b         : out std_logic;
+			hsync     : out std_logic;
+			vsync     : out std_logic;
+			hblank    : out std_logic;
+			vblank    : out std_logic;
+			field     : out std_logic
+			);
+	 end component;
+
 	 component sid6581
 	 
 		port(
-			clk_1MHz 	: in  std_logic;
+			ce_1MHz 	: in  std_logic;
          clk32 		: in  std_logic;
          clk_DAC 		: in  std_logic;
          reset 		: in  std_logic;
@@ -323,18 +395,20 @@ begin
         NMI_n          => '1',
         R_W_n          => cpu_R_W_n,
         Sync           => open,
-        A(23 downto 16) => open,
+        A(23 downto 16) => cpu_addr_hi,
         A(15 downto 0) => cpu_addr(15 downto 0),
         DI(7 downto 0) => cpu_din(7 downto 0),
         DO(7 downto 0) => cpu_dout(7 downto 0));
 
     not_cpu_R_W_n <= not cpu_R_W_n;
+    cpu_addr_o    <= cpu_addr;
+    cpu_clken_o   <= cpu_clken;
 	 
     -- reset logic
 	 process (clk_main) 
 	 begin
 	 if rising_edge(clk_main) then
-		RSTn			<= key_break and ext_reset_n;
+		RSTn			<= key_break and ext_reset_n and not osd_break;
 	end if;
 	end process;
 	
@@ -373,7 +447,7 @@ begin
             clk_ena        => clk_vid_en,
             reset          => reset_vid,
             da0            => open,
-            videoaddr      => vid_addr,
+            videoaddr      => mc_vid_addr,
             dd             => vid_data,
             hs_n           => vdg_hs_n,
             fs_n           => vdg_fs_n,
@@ -395,27 +469,166 @@ begin
             vblank         => vga_vblank,
             cvbs           => open,
             black_backgnd  => BLACK_BACKGND,
-            char_a         => char_a,
+            border         => border,
+            char_a         => mc_char_a,
             char_d_o       => char_d_o,
-				pixel_clock    => pixel_clock
+				pixel_clock    => mc_pixel_clock
             );
 
        -- 8Kx8 Dual port video RAM
         -- Port A connects to Atom and is read/write
         -- Port B connects to MC6847 and is read only    
-        Inst_VideoRam : entity work.VideoRam
+        Inst_VideoRam0 : entity work.VideoRam
             port map (
                 clka  => clk_main,
-                wea   => video_ram_we,
+                wea   => bank0_we,
                 addra => cpu_addr(12 downto 0),
                 dina  => cpu_dout,
-                douta => vid_dout,
+                douta => bank0_douta,
                 clkb  => clk_vid,
                 web   => '0',
                 addrb => vid_addr,
                 dinb  => (others => '0'),
-                doutb => vid_data
+                doutb => bank0_doutb
                 );
+
+        Inst_VideoRam1 : entity work.VideoRam
+            port map (
+                clka  => clk_main,
+                wea   => bank1_we,
+                addra => cpu_addr(12 downto 0),
+                dina  => cpu_dout,
+                douta => bank1_douta,
+                clkb  => clk_vid,
+                web   => '0',
+                addrb => vid_addr,
+                dinb  => (others => '0'),
+                doutb => bank1_doutb
+                );
+
+        bank_sela <= extensions(4);
+        bank0_we  <= video_ram_we when bank_sela = '0' else '0';
+        bank1_we  <= video_ram_we when bank_sela = '1' else '0';
+        vid_dout  <= bank1_douta when bank_sela = '1' else bank0_douta;
+
+        -- The 6847's bank select crosses into clk_vid: two flops (AcornAtom.sdc).
+        process (clk_vid)
+        begin
+            if rising_edge(clk_vid) then
+                bank_selb_s <= bank_selb_s(0) & extensions(5);
+            end if;
+        end process;
+        vid_data_raw <= bank1_doutb when bank_selb_s(1) = '1' else bank0_doutb;
+
+        -- The mouse pointer is drawn into the video data on its way to the 6847
+        -- (AtomGodilVideo CImplMouse). Its position and image cross into
+        -- clk_vid through two flops; they change at most once per mouse packet.
+        process (clk_vid)
+        begin
+            if rising_edge(clk_vid) then
+                ptr_s0 <= (not pointer_nr(7)) & pointer_nr(4 downto 0) & mouse_x & mouse_y;
+                ptr_s1 <= ptr_s0;
+            end if;
+        end process;
+
+        Inst_Pointer : entity work.Pointer
+            port map (
+                CLK  => clk_vid,
+                PO   => ptr_s1(21),
+                PS   => ptr_s1(20 downto 16),
+                X    => ptr_s1(15 downto 8),
+                Y    => ptr_s1(7 downto 0),
+                ADDR => vid_addr,
+                DIN  => vid_data_raw,
+                DOUT => vid_data
+                );
+
+    --------------------------------------------------------
+    -- GODIL VGA80x40 (#BDE0 bit 7)
+    --------------------------------------------------------
+    -- It reads the 6847's video RAM (bank as #BDE0 bit 5) and character ROM
+    -- in place of the 6847 while it is on; the mouse pointer is not drawn.
+    process (clk_vid)
+    begin
+        if rising_edge(clk_vid) then
+            vga80_s <= vga80_s(0) & extensions(7);
+        end if;
+    end process;
+    vga80 <= vga80_s(1);
+    vga80_on <= vga80;
+
+    Inst_vga80 : godil_vga80
+        port map (
+            clk       => clk_vid,
+            ce        => clk_vid_en,
+            reset     => reset_vid,
+            ocrx      => ocrx,
+            ocry      => ocry,
+            octl      => octl,
+            octl2     => octl2,
+            ram_addr  => v80_addr,
+            ram_data  => vid_data_raw,
+            font_addr => v80_font_a,
+            font_data => char_d_o,
+            r         => v80_r,
+            g         => v80_g,
+            b         => v80_b,
+            hsync     => v80_hsync,
+            vsync     => v80_vsync,
+            hblank    => v80_hblank,
+            vblank    => v80_vblank,
+            field     => v80_field
+            );
+
+    vid_addr    <= v80_addr   when vga80 = '1' else mc_vid_addr;
+    char_a      <= v80_font_a when vga80 = '1' else mc_char_a;
+    pixel_clock <= clk_vid_en when vga80 = '1' else mc_pixel_clock;
+
+    --------------------------------------------------------
+    -- GODIL registers (#BDE0-#BDFF)
+    --------------------------------------------------------
+    -- Only what is implemented reads back: #BDE0 (mode extensions; bits 4/5
+    -- are the video RAM banks, bit 7 VGA80x40, the other bits are stored but
+    -- have no effect yet), #BDE2-#BDE5 (VGA80x40 cursor and control),
+    -- #BDE8-#BDEA (mouse) and #BDEF (version 1.4, AtomGodilVideo's).
+    -- The rest reads #F1 as in AtomGodilVideo with those features left out.
+    process (clk_main)
+    begin
+        if rising_edge(clk_main) then
+            if RSTn = '0' then
+                extensions    <= (others => '0');
+                extensions(3) <= not charset;  -- 1 = original character set
+                pointer_nr    <= x"80";        -- pointer off
+                ocrx          <= x"00";
+                ocry          <= x"00";
+                octl          <= x"82";        -- VGA on, green on
+                octl2         <= x"00";        -- black
+            elsif godil_cs = '1' and not_cpu_R_W_n = '1' then
+                case cpu_addr(4 downto 0) is
+                    when "00000" => extensions <= cpu_dout;
+                    when "00010" => ocrx       <= cpu_dout;
+                    when "00011" => ocry       <= cpu_dout;
+                    when "00100" => octl       <= cpu_dout;
+                    when "00101" => octl2      <= cpu_dout;
+                    when "01010" => pointer_nr <= cpu_dout;
+                    when others  => null;
+                end case;
+            end if;
+        end if;
+    end process;
+
+    -- #BDE9 reads 255 at the top to 64 at the bottom; #BDEA bits 2-0 read 0
+    -- while a button is held (the GODIL wiki).
+    godil_dout <= extensions     when cpu_addr(4 downto 0) = "00000" else
+                  ocrx           when cpu_addr(4 downto 0) = "00010" else
+                  ocry           when cpu_addr(4 downto 0) = "00011" else
+                  octl           when cpu_addr(4 downto 0) = "00100" else
+                  octl2          when cpu_addr(4 downto 0) = "00101" else
+                  mouse_x        when cpu_addr(4 downto 0) = "01000" else
+                  not mouse_y    when cpu_addr(4 downto 0) = "01001" else
+                  pointer_nr(7) & "1111" & not mouse_buttons when cpu_addr(4 downto 0) = "01010" else
+                  x"14"          when cpu_addr(4 downto 0) = "01111" else
+                  x"F1";
 
 				
         ---- ram for char generator      
@@ -440,7 +653,7 @@ begin
 
         Inst_sid6581: sid6581
             port map (
-                clk_1MHz => clk_sid_1MHz,
+                ce_1MHz => sid_ce_1MHz,
                 clk32 => clk_main,
                 clk_DAC => clk_dac,
                 reset => reset,
@@ -455,8 +668,21 @@ begin
                 audio_data => sid_audio_d 
             );
 
-        -- Clock_Sid_1MHz is derived by dividing down the 32MHz clock      
-        clk_sid_1MHz <= clk_counter(4);
+        -- SID clock: a free-running 1 MHz enable from clk_main (32 MHz / 32 =
+        -- 1 MHz, the same rate as the 1x CPU). It used to be clk_counter(4),
+        -- which only toggles at 1x, so the SID stopped dead in turbo, and it was
+        -- used as a clock rather than an enable.
+        process (clk_main)
+        begin
+            if rising_edge(clk_main) then
+                sid_div <= sid_div + 1;
+                if sid_div = 31 then
+                    sid_ce_1MHz <= '1';
+                else
+                    sid_ce_1MHz <= '0';
+                end if;
+            end if;
+        end process;
 		  
     --------------------------------------------------------
    -- Colour palette control
@@ -500,17 +726,28 @@ begin
     process (clk_vid)
     begin
         if rising_edge(clk_vid) then
-            if vga_blank = '1' then
-                physical_colour <= (others => '0');
+            if vga80 = '1' then
+                -- VGA80x40: its own colours (no palette), syncs and field
+                physical_colour <= v80_r & v80_r & v80_g & v80_g & v80_b & v80_b;
+                vsync  <= v80_vsync;
+                hsync  <= v80_hsync;
+                vblank <= v80_vblank;
+                hblank <= v80_hblank;
+                field  <= v80_field;
             else
-                physical_colour <= palette(conv_integer(logical_colour));
+                if vga_blank = '1' then
+                    physical_colour <= (others => '0');
+                else
+                    physical_colour <= palette(conv_integer(logical_colour));
+                end if;
+                -- Also register hsync/vsync so they are correctly
+                -- aligned with the colour changes
+                vsync		<= vga_vsync;
+                hsync    <= vga_hsync;
+                vblank   <= vga_vblank;
+                hblank   <= vga_hblank;
+                field    <= '1';
             end if;
-            -- Also register hsync/vsync so they are correctly
-            -- aligned with the colour changes
-            vsync		<= vga_vsync;
-				hsync    <= vga_hsync;
-				vblank   <= vga_vblank;
-				hblank   <= vga_hblank;
 				-- character set selection
 				if charset = '0' then
 					char_d_o 	<= char_do;
@@ -576,7 +813,7 @@ end process;
 
     -- Port B
     --   bits 7..0 (input) read the keyboard matrix
-    i8255_pb_idata <= (key_shift & key_ctrl & ps2dataout);-- and (kbd_pb);
+    i8255_pb_idata <= ((key_shift and not osd_shift) & (key_ctrl and not osd_ctrl) & ps2dataout);-- and (kbd_pb);
 
 
     -- Port C
@@ -602,11 +839,12 @@ end process;
 ---------------------------------------------------------------------
 
 
-    input : keyboard port map(
+    Inst_keyboard : keyboard port map(
         clk      => clk_main,
 		  clk_en		=> pia_clken,
         reset     => not ext_reset_n,
         layout    => layout,
+        turbo_default => turbo_default,
         PS2_key   => ps2_key,
         keyout     => ps2dataout,
         row        => i8255_pa_data(3 downto 0),
@@ -682,22 +920,22 @@ end process;
 
             portbout(0)       => nARD,
             portbout(1)       => nAWR,
-            portbout(2)       => open,
+            portbout(2)       => avr_portb_nc(2),
             portbout(3)       => AVRA0,
-            portbout(4)       => open,
-            portbout(5)       => open,
+            portbout(4)       => avr_portb_nc(4),
+            portbout(5)       => avr_portb_nc(5),
             portbout(6)       => LED1n,
             portbout(7)       => LED2n,
 
             portdin           => (others => '0'),
-            portdout(0)       => open,
-            portdout(1)       => open,
-            portdout(2)       => open,
-            portdout(3)       => open,
+            portdout(0)       => avr_portd_nc(0),
+            portdout(1)       => avr_portd_nc(1),
+            portdout(2)       => avr_portd_nc(2),
+            portdout(3)       => avr_portd_nc(3),
             portdout(4)       => SDSS,
-            portdout(5)       => open,
-            portdout(6)       => open,
-            portdout(7)       => open,
+            portdout(5)       => avr_portd_nc(5),
+            portdout(6)       => avr_portd_nc(6),
+            portdout(7)       => avr_portd_nc(7),
 
             -- FUDLR
             portein           => ioport,
@@ -711,7 +949,11 @@ end process;
             txd               => avr_TxD
             );
 
-        ioport <= "111" & Joystick1(5) & Joystick1(0) & Joystick1(1) & Joystick1(2) & Joystick1(3);
+        -- AtoMMC's joystick byte (CMD_READ_PORT): bit 0 right, 1 left, 2 down,
+        -- 3 up, 4 fire, active low (Atomulator atmmc2core.c). That is MiSTer's
+        -- joystick order; upstream's line reorders an Atari joystick (0 up,
+        -- 1 down, 2 left, 3 right, 5 fire) and would swap the directions here.
+        ioport <= "111" & Joystick1(4 downto 0);
 
         Inst_AtomPL8: entity work.AtomPL8 port map(
             clk               => clk_main,
@@ -767,8 +1009,8 @@ end process;
         pia_cs     	<= '0';
         vid_cs  		<= '0';
         sid_cs       <= '0';
+        godil_cs     <= '0';
         pl8_cs       <= '0';
-		  spi_cs       <= '0';
 		  palette_cs	<= '0';
 		  ext_rom_cs 	<= '0';
         ext_ram_cs 	<= '0';
@@ -795,13 +1037,8 @@ end process;
 						else
 							ext_ram_cs <= '1';
 						end if;
-            when x"8" => vid_cs  	<= '1';  -- 0x8000 -- 0x9fff is RAM
-            when x"9" => 
-						if cpu_addr(11) = '0' then
-							vid_cs  <= '1';
-						else
-							ext_ram_cs <= '1';
-						end if;
+            when x"8" => vid_cs  	<= '1';  -- 0x8000 -- 0x9fff is video RAM (8 KB, banked)
+            when x"9" => vid_cs  	<= '1';
             when x"A" => 
 						ext_rom_cs <= '1';
 						A000_cs	<= '1';
@@ -815,13 +1052,13 @@ end process;
                      pl8_cs <= '1';
                 elsif cpu_addr(11 downto 4)       		= x"80" then --  0xB80x 6522 VIA
                      via_cs <= '1';
-					 elsif cpu_addr(11 downto 4) 		  		= x"C0" then --  SDOS
-							spi_cs <= '1';
 					 elsif cpu_addr(11 downto 4)				= x"D0" then --  PALETTE
 							palette_cs <= '1';
                 elsif cpu_addr(11 downto 5) & '0' 		= x"DC" then --  SID
                      sid_cs <= '1';
-					 else ext_ram_cs <= '1';
+                elsif cpu_addr(11 downto 5) & '0' 		= x"DE" then --  0xBDEx, 0xBDFx GODIL registers
+                     godil_cs <= '1';
+					 else null;   -- un-decoded: no RAM here on an Atom; reads #F1 as upstream
                 end if;
             when x"C"   => ext_rom_cs <= '1';
             when x"D"   => ext_rom_cs <= '1';
@@ -841,13 +1078,13 @@ end process;
         pia_dout     when pia_cs = '1'       else
 		  via_dout     when via_cs = '1'      	else
 		  pl8_data 		when pl8_cs = '1'			else
-		  spi_dout     when spi_cs = '1'    	else	
 		  sid_dout		when sid_cs = '1'       else  
+		  godil_dout	when godil_cs = '1'     else
 		  RegBFFF	 	when BFFF_Enable ='1'   else
 		  ram_dout		when A000_cs ='1'    	else
         ram_dout	 	when ext_ram_cs ='1'    else
 		  ram_dout		when ext_rom_cs ='1'    else
-		  x"EA";    
+		  x"F1";       -- un-decoded locations (upstream AtomFpga_Core)
 
 --------------------------------------------------------
 -- Clock enable generator
@@ -894,7 +1131,12 @@ end process;
             
 
             if clk_counter = limit then
-                turbo_synced <= key_turbo; -- only change the timing at the end of the cycle
+                -- only change the timing at the end of the cycle; a playing tape asks for 8 MHz
+                if tape_turbo = '1' then
+                    turbo_synced <= "11";
+                else
+                    turbo_synced <= key_turbo;
+                end if;
                 clk_counter <= (others => '0');
             else
                 clk_counter <= clk_counter + 1;
@@ -942,12 +1184,22 @@ end process;
                 sample_data <= '0';
             end if;
 				
-				-- Cassette divider
-				-- 32 MHz / 2 / 13 / 16 / 16 = 4807 Hz
+				-- Cassette divider: the 2.4 kHz reference tone (PC4) and the tape tick
 				
+				-- One tone half cycle per 208 CPU cycles, as on the real Atom (4 MHz / 13 / 64
+				-- against a 1 MHz CPU): 6656 clk_main at 1x, divided by the turbo factor so
+				-- SAVE's tone and the tape player (cas_tick) keep their place against the
+				-- CPU's timing loops at every speed.
+				cas_tick <= '0';
 				if cas_divider = 0 then
-                cas_divider <= x"19FF";
+                case turbo_synced is
+                    when "11"   => cas_divider <= x"033F";  --  832 (8x)
+                    when "10"   => cas_divider <= x"067F";  -- 1664 (4x)
+                    when "01"   => cas_divider <= x"0CFF";  -- 3328 (2x)
+                    when others => cas_divider <= x"19FF";  -- 6656 (1x)
+                end case;
                 cas_tone    <= not cas_tone;
+                cas_tick    <= '1';
             else
                 cas_divider <= cas_divider - 1;
             end if;

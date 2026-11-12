@@ -1,6 +1,14 @@
 // Dave Wood 2020
-
-
+//
+// PS/2 keyboard (MiSTer's ps2_key) to the Atom's 10x6 key matrix, plus the
+// SHIFT, CTRL, REPEAT and BREAK lines, the turbo keys F1-F4 and the joysticks.
+// After https://github.com/hoglet67/AtomFpga/blob/e72d68a968c0833ed34a4582b6c9f1b58265f5fc/src/ps2kybrd/keyboard.vhd
+//
+// layout: 0 PC (UK), 1 PC (US), 2 Atom (original), 3 Atom (game: Shift and
+// Ctrl swapped). The PC layouts type what is printed on the PC key, so a key
+// can sit at a different matrix position, and need the other Shift state on
+// the Atom, depending on whether Shift is held. The Atom layouts put each Atom
+// key at one PC key whatever Shift does.
 
 module keyboard
 (
@@ -8,6 +16,7 @@ module keyboard
 	input				clk_en,
 	input			 	reset,
 	input		[1:0]	layout,
+	input		[1:0]	turbo_default,  // CPU speed at reset (OSD); F1-F4 change it live
 	input  		[10:0]	ps2_key,
 	input	 	[3:0]	row,
 	input		[15:0]	joy1,
@@ -18,845 +27,268 @@ module keyboard
 	output reg			repeat_out,
 	output reg			break_out,
 	output reg	[1:0]	turbo = 2'b00
-
-
-
 );
 
-wire [8:0]     code;
+localparam UK = 2'b00, US = 2'b01, ORIG = 2'b10, GAME = 2'b11;
+wire pc_layout = ~layout[1];
 
-//reg            	extended;
-reg  [5:0]     	keys [0:9];
-reg  [5:0]		keydata;
-reg			   	shift_press = 1'b1;
-reg  			key_strobe = 1'b0;
-reg				key_press;
-reg				left_alt;
+reg  [8:0]	code;			// {extended, scan code}
+reg			key_press;
+reg			key_strobe = 1'b0;
+reg  [5:0]	keys [0:9];		// the matrix, active low
+reg			shift_press = 1'b1;	// the PC's Shift keys, active low
+reg			left_alt;		// PC layouts: Left Alt is an extra Shift for ^ @ and 0
 
-//https://github.com/hoglet67/AtomFpga/blob/e72d68a968c0833ed34a4582b6c9f1b58265f5fc/src/ps2kybrd/keyboard.vhd
-   always @(*)
-
-     begin
-        keydata <= keys[row];
-	        //-- 0 U R D L F
-
-		if (row == 4'b0000)
-			keyout <= keydata & {1'b1,joy1[3],joy1[0],joy1[2],joy1[1],joy1[4]};
-		else
-		if (row == 4'b0001)
-			keyout <= keydata & {1'b1,joy2[3],joy2[0],joy2[2],joy2[1],joy2[4]};
-		else
-			keyout <= keydata;			
-     end
-
-always @(posedge clk) begin
-if(clk_en == 1'b1) begin
+always @(posedge clk) if (clk_en) begin
 	reg old_state;
 
 	key_strobe 	<= 1'b0;
 	old_state 	<= ps2_key[10];
-
-	if(old_state != ps2_key[10]) begin
-//		extended 	<= ps2_key[8];
+	if (old_state != ps2_key[10]) begin
 		key_press 	<= ps2_key[9];
 		code 		<= ps2_key[8:0];
 		key_strobe 	<= 1'b1;
 	end
 end
-end
+
+// Each layout has two tables, Shift up and Shift down. A key is released
+// through the table it was pressed through: choosing by Shift's state at the
+// release left a key down in the other table when Shift was let go first
+// (Shift, ' down, Shift up, ' up left " held: everything typed after it came
+// out wrong, ERROR 94).
+reg  [511:0]	press_shifted = 512'd0;
+wire			unshifted = key_press ? shift_press : ~press_shifted[code];
+always @(posedge clk) if (key_strobe && clk_en && key_press) press_shifted[code] <= ~shift_press;
+
+// Left Alt picks where Shift 0 goes, so 0 is released where Alt sent it:
+// Alt let go before 0 left Atom Shift 0 held.
+reg				zero_alt = 1'b0;
+wire			alt = key_press ? left_alt : zero_alt;
+always @(posedge clk) if (key_strobe && clk_en && key_press && code == 'h045) zero_alt <= left_alt;
+
+// ---------------------------------------------------------------------------
+// The tables. Each entry gives the key's matrix position and, for some PC
+// keys, the Atom's SHIFT line while the key is down (SH = shifted, NS = not
+// shifted; without one the line follows the Shift keys).
+//
+//   row  col 0          1        2      3      4  5
+//    9   SPACE          -        4 $    . >    H  R
+//    8   [              -        5 %    / ?    I  S
+//    7   backslash      -        6 &    @      J  T
+//    6   ]              RETURN   7 '    A      K  U
+//    5   ^              COPY     8 (    B      L  V
+//    4   LOCK           DELETE   9 )    C      M  W
+//    3   RIGHT/LEFT     0        : *    D      N  X
+//    2   UP/DOWN        1 !      ; +    E      O  Y
+//    1   -              2 "      , <    F      P  Z
+//    0   -              3 #      - =    G      Q  ESC
+// The two cursor keys give RIGHT and UP, and LEFT and DOWN with SHIFT.
+// ---------------------------------------------------------------------------
+
+localparam [1:0] FOLLOW = 2'b00, NS = 2'b11, SH = 2'b10;
+
+// {hit, shift override (enable, SHIFT line value), row, column}
+function automatic [9:0] K(input [3:0] r, input [2:0] c, input [1:0] sh);
+	K = {1'b1, sh, r, c};
+endfunction
+
+// The same in every layout and Shift state.
+function automatic [9:0] common_key(input [8:0] c);
+	casex (c)
+	'h029: common_key = K(9,0,FOLLOW);  // space
+	'h054: common_key = K(8,0,FOLLOW);  // [
+	'h05B: common_key = K(6,0,FOLLOW);  // ]
+	'h058: common_key = K(4,0,FOLLOW);  // LOCK (Caps Lock)
+	'hx74: common_key = K(3,0,FOLLOW);  // RIGHT
+	'hx75: common_key = K(2,0,FOLLOW);  // UP
+	'h05A: common_key = K(6,1,FOLLOW);  // RETURN
+	'h066: common_key = K(4,1,FOLLOW);  // DELETE (Backspace)
+	'h016: common_key = K(2,1,FOLLOW);  // 1
+	'h025: common_key = K(9,2,FOLLOW);  // 4
+	'h02E: common_key = K(8,2,FOLLOW);  // 5
+	'h041: common_key = K(1,2,FOLLOW);  // ,
+	'h049: common_key = K(9,3,FOLLOW);  // .
+	'h04A: common_key = K(8,3,FOLLOW);  // /
+	'h01C: common_key = K(6,3,FOLLOW);  // A
+	'h032: common_key = K(5,3,FOLLOW);  // B
+	'h021: common_key = K(4,3,FOLLOW);  // C
+	'h023: common_key = K(3,3,FOLLOW);  // D
+	'h024: common_key = K(2,3,FOLLOW);  // E
+	'h02B: common_key = K(1,3,FOLLOW);  // F
+	'h034: common_key = K(0,3,FOLLOW);  // G
+	'h033: common_key = K(9,4,FOLLOW);  // H
+	'h043: common_key = K(8,4,FOLLOW);  // I
+	'h03B: common_key = K(7,4,FOLLOW);  // J
+	'h042: common_key = K(6,4,FOLLOW);  // K
+	'h04B: common_key = K(5,4,FOLLOW);  // L
+	'h03A: common_key = K(4,4,FOLLOW);  // M
+	'h031: common_key = K(3,4,FOLLOW);  // N
+	'h044: common_key = K(2,4,FOLLOW);  // O
+	'h04D: common_key = K(1,4,FOLLOW);  // P
+	'h015: common_key = K(0,4,FOLLOW);  // Q
+	'h02D: common_key = K(9,5,FOLLOW);  // R
+	'h01B: common_key = K(8,5,FOLLOW);  // S
+	'h02C: common_key = K(7,5,FOLLOW);  // T
+	'h03C: common_key = K(6,5,FOLLOW);  // U
+	'h02A: common_key = K(5,5,FOLLOW);  // V
+	'h01D: common_key = K(4,5,FOLLOW);  // W
+	'h022: common_key = K(3,5,FOLLOW);  // X
+	'h035: common_key = K(2,5,FOLLOW);  // Y
+	'h01A: common_key = K(1,5,FOLLOW);  // Z
+	'h076: common_key = K(0,5,FOLLOW);  // ESCAPE
+	default: common_key = 10'd0;
+	endcase
+endfunction
+
+// Atom layouts (original and game), either Shift state: the Atom's keys by
+// position, Shift passed through.
+function automatic [9:0] atom_key(input [8:0] c);
+	casex (c)
+	'h00D: atom_key = K(5,0,FOLLOW);  // ^ (Tab)
+	'h05D: atom_key = K(7,0,FOLLOW);  // backslash
+	'hx69: atom_key = K(5,1,FOLLOW);  // COPY (End)
+	'h045: atom_key = K(3,1,FOLLOW);  // 0
+	'h01E: atom_key = K(1,1,FOLLOW);  // 2
+	'h026: atom_key = K(0,1,FOLLOW);  // 3
+	'h036: atom_key = K(7,2,FOLLOW);  // 6
+	'h03D: atom_key = K(6,2,FOLLOW);  // 7
+	'h03E: atom_key = K(5,2,FOLLOW);  // 8
+	'h046: atom_key = K(4,2,FOLLOW);  // 9
+	'h052: atom_key = K(3,2,FOLLOW);  // : (')
+	'h04C: atom_key = K(2,2,FOLLOW);  // ;
+	'h04E: atom_key = K(0,2,FOLLOW);  // -
+	'h055: atom_key = K(7,3,FOLLOW);  // @ (=)
+	default: atom_key = common_key(c);
+	endcase
+endfunction
+
+// PC layouts, Shift up. The Atom's unshifted key where the PC's is the same,
+// else the shifted Atom key that prints the same thing.
+function automatic [9:0] pc_key_unshifted(input uk, input [8:0] c);
+	casex (c)
+	'h05D: pc_key_unshifted = uk ? K(0,1,SH)       // UK #  = Atom Shift 3
+	                             : K(7,0,FOLLOW);  // US backslash
+	'h056,
+	'h061: pc_key_unshifted = uk ? K(7,0,FOLLOW)   // UK backslash (two scan codes)
+	                             : 10'd0;
+	'hx6B: pc_key_unshifted = K(3,0,SH);  // LEFT  = Atom Shift LEFT/RIGHT
+	'hx72: pc_key_unshifted = K(2,0,SH);  // DOWN  = Atom Shift UP/DOWN
+	'h00D: pc_key_unshifted = K(5,1,FOLLOW);  // COPY (Tab)
+	'h045: pc_key_unshifted = K(3,1,FOLLOW);  // 0
+	'h00E: pc_key_unshifted = uk ? K(2,1,FOLLOW)   // ` types 1 (UK) or 2 (US): which layout is on
+	                             : K(1,1,FOLLOW);
+	'h01E: pc_key_unshifted = K(1,1,FOLLOW);  // 2
+	'h026: pc_key_unshifted = K(0,1,FOLLOW);  // 3
+	'h036: pc_key_unshifted = K(7,2,FOLLOW);  // 6
+	'h03D: pc_key_unshifted = K(6,2,FOLLOW);  // 7
+	'h052: pc_key_unshifted = K(6,2,SH);      // '  = Atom Shift 7
+	'h03E: pc_key_unshifted = K(5,2,FOLLOW);  // 8
+	'h046: pc_key_unshifted = K(4,2,FOLLOW);  // 9
+	'h04C: pc_key_unshifted = K(2,2,FOLLOW);  // ;
+	'h04E: pc_key_unshifted = K(0,2,FOLLOW);  // -
+	'h055: pc_key_unshifted = K(0,2,SH);      // =  = Atom Shift -
+	default: pc_key_unshifted = common_key(c);
+	endcase
+endfunction
+
+// PC layouts, Shift down. alt is Left Alt, which shifts ^ @ and 0 again.
+function automatic [9:0] pc_key_shifted(input uk, input alt, input [8:0] c);
+	casex (c)
+	'h05D: pc_key_shifted = uk ? 10'd0            // UK ~ : none
+	                           : K(7,0,FOLLOW);   // US | (Shift backslash)
+	'h056,
+	'h061: pc_key_shifted = uk ? K(7,0,FOLLOW)    // UK |
+	                           : 10'd0;
+	'h036: pc_key_shifted = K(5,0,alt ? SH : NS); // ^ (Shift 6)
+	'hx74: pc_key_shifted = K(3,0,NS);  // Shift RIGHT = Atom RIGHT
+	'hx6B: pc_key_shifted = K(3,0,FOLLOW);  // Shift LEFT
+	'hx75: pc_key_shifted = K(2,0,NS);  // Shift UP = Atom UP/DOWN unshifted
+	'hx72: pc_key_shifted = K(2,0,FOLLOW);  // Shift DOWN
+	'h00D: pc_key_shifted = K(5,1,FOLLOW);  // COPY (Tab)
+	'h052: pc_key_shifted = uk ? K(7,3,alt ? SH : NS)   // UK @ (Shift ')
+	                           : K(1,1,FOLLOW);       // US " (Shift ')
+	'h01E: pc_key_shifted = uk ? K(1,1,FOLLOW)        // UK " (Shift 2)
+	                           : K(7,3,alt ? SH : NS); // US @ (Shift 2)
+	'h026: pc_key_shifted = uk ? 10'd0                // UK pound: none
+	                           : K(0,1,FOLLOW);       // US # (Shift 3)
+	'h03D: pc_key_shifted = K(7,2,FOLLOW);  // & (Shift 7) = Atom Shift 6
+	'h046: pc_key_shifted = K(5,2,FOLLOW);  // ( (Shift 9) = Atom Shift 8
+	'h045: pc_key_shifted = alt ? K(3,1,FOLLOW)       // Alt Shift 0: Atom Shift 0
+	                            : K(4,2,FOLLOW);      // ) (Shift 0) = Atom Shift 9
+	'h03E: pc_key_shifted = K(3,2,FOLLOW);  // * (Shift 8) = Atom Shift :
+	'h04C: pc_key_shifted = K(3,2,NS);      // : (Shift ;) = Atom :
+	'h055: pc_key_shifted = K(2,2,FOLLOW);  // + (Shift =) = Atom Shift ;
+	'h04E,
+	'h00E: pc_key_shifted = 10'd0;          // _ and ~: none
+	default: pc_key_shifted = common_key(c);
+	endcase
+endfunction
+
+wire [9:0] key = !pc_layout ? atom_key(code)
+               : unshifted  ? pc_key_unshifted(layout == UK, code)
+               :              pc_key_shifted(layout == UK, alt, code);
+wire       key_hit    = key[9];
+wire [1:0] key_shift  = key[8:7];
+wire [3:0] key_row    = key[6:3];
+wire [2:0] key_col    = key[2:0];
+
+// Modifier keys. The game layout swaps Left Shift and Left Ctrl; the original
+// layout has REPEAT on Left Alt, the others on Right Alt.
+wire is_shift  = code == 'h059 || code == (layout == GAME ? 9'h014 : 9'h012);
+wire is_ctrl   = code == 'h114 || code == (layout == GAME ? 9'h012 : 9'h014);
+wire is_repeat = code == (layout == ORIG ? 9'h011 : 9'h111);
 
 always @(posedge clk) begin
-	
-	if(reset) begin
-		
-	  break_out  	<= 1'b1;
-      shift_out  	<= 1'b1;
-	  shift_press 	<= 1'b1;
-      ctrl_out   	<= 1'b1;
-      repeat_out 	<= 1'b1;
-	  left_alt 		<= 1'b0;
-      keys[0]    	<= 6'b111111;
-      keys[1]    	<= 6'b111111;
-      keys[2]    	<= 6'b111111;
-      keys[3]    	<= 6'b111111;
-      keys[4]    	<= 6'b111111;
-      keys[5]    	<= 6'b111111;
-      keys[6]    	<= 6'b111111;
-      keys[7]    	<= 6'b111111;
-      keys[8]    	<= 6'b111111;
-      keys[9]    	<= 6'b111111;
-      turbo      	<= 2'b00;
+	if (reset) begin
+		break_out  	<= 1'b1;
+		shift_out  	<= 1'b1;
+		shift_press <= 1'b1;
+		ctrl_out   	<= 1'b1;
+		repeat_out 	<= 1'b1;
+		left_alt 	<= 1'b0;
+		for (int i = 0; i < 10; i++) keys[i] <= 6'b111111;
+		turbo      	<= turbo_default;
 	end
-	
-	if (key_strobe)
-	  if(clk_en == 1'b1)
-		if (layout == 2'b00) // uk
-			if (shift_press)
-			begin
-				shift_out  <= 1'b1;
-				casex(code)
-				'h005: turbo	      		<= 2'b00;  // f1
-				'h006: turbo	      		<= 2'b01;  // f2
-				'h004: turbo	      		<= 2'b10;  // f3
-				'h00C: turbo	      		<= 2'b11;  // f4
-				'h009: break_out      		<= ~key_press;  // F10 break			
-				'h111: repeat_out			<= ~key_press;  // Repeat (Right alt)	
-				'h012, 'h059: 
-							begin
-								shift_press <= ~key_press;  // Left SHIFT // Right SHIFT
-								shift_out  	<= ~key_press;
-							end
-				'h011: left_alt				<= key_press;   // Left ALT
-				'h014, 'h114: ctrl_out		<= ~key_press;  // Left ctrl
-				
-				'h029: keys[9][0] 			<= ~key_press;  // space
-				'h054: keys[8][0]			<= ~key_press;  // left sq bracket [
-				'h05D: begin
-							keys[0][1] 		<= ~key_press;  // # uk only
-							shift_out  		<= ~key_press;
-						end
-					
-				'h056, 'h061 : keys[7][0] 	<= ~key_press;  // back slash h056 UK
-										
-				'h05B: keys[6][0] 			<= ~key_press;  // ]		
-//				'h00D: keys[5][0] 			<= ~key_press;  // UP moved to shift 6
-				'h058: keys[4][0] 			<= ~key_press;  // Shift Lock (CAPS LOCK)
-				'hx74: keys[3][0] 			<= ~key_press;  // RIGHT
-				'hx6B: begin
-							keys[3][0] 		<= ~key_press;  // LEFT
-							shift_out  		<= ~key_press;
-						end
-				'hx75: keys[2][0] 			<= ~key_press;  // UP
-				'hx72: begin
-							keys[2][0] 		<= ~key_press;  // DOWN
-							shift_out  		<= ~key_press;
-						end
-				'h05A: keys[6][1] 			<= ~key_press;  // RETURN
-				'h00D: keys[5][1] 			<= ~key_press;  // COPY (TAB)
-				'h066: keys[4][1] 			<= ~key_press;  // DELETE (Backspace)
-				'h045: keys[3][1] 			<= ~key_press;  // 0
-				'h016: keys[2][1] 			<= ~key_press;  // 1
-				'h00E: keys[2][1] 			<= ~key_press;  // 1 layout indentifier
-				'h01E: keys[1][1] 			<= ~key_press;  // 2
-				'h026: keys[0][1] 			<= ~key_press;  // 3
 
-				'h025: keys[9][2] 			<= ~key_press;  // 4
-				'h02E: keys[8][2] 			<= ~key_press;  // 5
-				'h036: keys[7][2] 			<= ~key_press;  // 6
-				'h03D: keys[6][2] 			<= ~key_press;  // 7
-				'h052: begin
-							keys[6][2] 		<= ~key_press;  // ' was shift 7 
-							shift_out 		<= ~key_press;
-						end
-				'h03E: keys[5][2] 			<= ~key_press;  // 8
-				'h046: keys[4][2] 			<= ~key_press;  // 9
-//            	'h052: keys[3][2] 			<= ~key_press;  //  : moved to shift ;
-				'h04C: keys[2][2] 			<= ~key_press;  // ;
-				'h041: keys[1][2] 			<= ~key_press;  // ,
-				'h04E: keys[0][2] 			<= ~key_press;  // -
-			
-				'h055: begin
-							keys[0][2] 		<= ~key_press;  // = was shift - 
-							shift_out 		<= ~key_press;
-						end
+	if (key_strobe && clk_en) begin
+		case (code)
+		'h005: turbo <= 2'b00;  // F1
+		'h006: turbo <= 2'b01;  // F2
+		'h004: turbo <= 2'b10;  // F3
+		'h00C: turbo <= 2'b11;  // F4
+		'h009: break_out <= ~key_press;  // F10 BREAK
+		default: ;
+		endcase
+		if (is_repeat) repeat_out  <= ~key_press;
+		if (is_shift)  shift_press <= ~key_press;
+		if (is_ctrl)   ctrl_out    <= ~key_press;
+		if (pc_layout && code == 'h011) left_alt <= key_press;
 
-				'h049: keys[9][3] 			<= ~key_press;  // .
-				'h04A: keys[8][3] 			<= ~key_press;  // /
-//            	'h055: keys[7][3] 			<= ~key_press;  //  @ moved to shift ' 
-				'h01C: keys[6][3] 			<= ~key_press;  // A
-				'h032: keys[5][3] 			<= ~key_press;  // B
-				'h021: keys[4][3] 			<= ~key_press;  // C
-				'h023: keys[3][3] 			<= ~key_press;  // D
-				'h024: keys[2][3] 			<= ~key_press;  // E
-				'h02B: keys[1][3] 			<= ~key_press;  // F
-				'h034: keys[0][3] 			<= ~key_press;  // G
+		if (key_hit) keys[key_row][key_col] <= ~key_press;
 
-				'h033: keys[9][4] 			<= ~key_press;  // H
-				'h043: keys[8][4] 			<= ~key_press;  // I
-				'h03B: keys[7][4] 			<= ~key_press;  // J
-				'h042: keys[6][4] 			<= ~key_press;  // K
-				'h04B: keys[5][4] 			<= ~key_press;  // L
-				'h03A: keys[4][4] 			<= ~key_press;  // M
-				'h031: keys[3][4] 			<= ~key_press;  // N
-				'h044: keys[2][4] 			<= ~key_press;  // O
-				'h04D: keys[1][4] 			<= ~key_press;  // P
-				'h015: keys[0][4] 			<= ~key_press;  // Q
-
-				'h02D: keys[9][5] 			<= ~key_press;  // R
-				'h01B: keys[8][5] 			<= ~key_press;  // S
-				'h02C: keys[7][5] 			<= ~key_press;  // T
-				'h03C: keys[6][5] 			<= ~key_press;  // U
-				'h02A: keys[5][5] 			<= ~key_press;  // V
-				'h01D: keys[4][5] 			<= ~key_press;  // W
-				'h022: keys[3][5] 			<= ~key_press;  // X
-				'h035: keys[2][5] 			<= ~key_press;  // Y
-				'h01A: keys[1][5] 			<= ~key_press;  // Z
-				'h076: keys[0][5] 			<= ~key_press;  // ESCAPE
-			
-			
-			
-				endcase
-			end
-			else
-			begin
-				shift_out  <= 1'b0;
-				casex(code)
-				'h005: turbo	      		<= 2'b00;  // f1
-				'h006: turbo	      		<= 2'b01;  // f2
-				'h004: turbo	      		<= 2'b10;  // f3
-				'h00C: turbo	      		<= 2'b11;  // f4
-				'h009: break_out      		<= ~key_press;  // F10 break			
-				'h111: repeat_out			<= ~key_press;  // Repeat (Right alt)	
-				'h012, 'h059: 
-							begin
-								shift_press <= ~key_press;  // Left SHIFT // Right SHIFT
-								shift_out  	<= ~key_press;
-							end
-				'h011: left_alt				<= key_press;   // Left ALT
-				'h014, 'h114: ctrl_out		<= ~key_press;  // Left ctrl
-				
-				'h029: keys[9][0] 			<= ~key_press;  // space
-				'h054: keys[8][0]			<= ~key_press;  // left sq bracket [
-					
-				'h056, 'h061 : keys[7][0] 	<= ~key_press;  // back slash h056 UK
-										
-				'h05B: keys[6][0] 			<= ~key_press;  // ]		
-				'h036: begin
-							keys[5][0] 		<= ~key_press;  // UP now shift 6 or shifted with left alt
-							if (left_alt)
-								shift_out  	<= ~key_press;
-							else
-								shift_out  	<= key_press;
-						end
-				'h058: keys[4][0] 			<= ~key_press;  // LOCK (CAPS LOCK)
-				'hx74: begin
-							keys[3][0] 		<= ~key_press;  // RIGHT
-							shift_out  		<= key_press;
-						end
-					'hx6B: keys[3][0] 		<= ~key_press;  // LEFT				
-					'hx75: begin
-							keys[2][0] 		<= ~key_press;  // UP
-							shift_out  		<= key_press;
-						end
-				'hx72: keys[2][0] 			<= ~key_press;  // DOWN
-					
-
-				'h05A: keys[6][1] 			<= ~key_press;  // RETURN
-				'h00D: keys[5][1] 			<= ~key_press;  // COPY (TAB)
-				'h066: keys[4][1] 			<= ~key_press;  // DELETE (Backspace)
-
-				'h016: keys[2][1] 			<= ~key_press;  // 1 !
-				'h01E: keys[1][1] 			<= ~key_press;  // 2 "
-//				'h026: keys[0][1] 			<= ~key_press;  // 3 # shift 3 non uk
-						
-				'h025: keys[9][2] 			<= ~key_press;  // 4 $
-				'h02E: keys[8][2] 			<= ~key_press;  // 5 %
-			// 6 key moved to up
-				'h03D: keys[7][2] 			<= ~key_press;  // 7 originally 6 &
- //           	'h03E: keys[6][2] 			<= ~key_press;  // 8 originally 7 now moved 
-				'h046: keys[5][2] 			<= ~key_press;  // 9 originally 8 (
-				'h045: if (left_alt)
-							keys[3][1] 		<= ~key_press;  // 0 shifted
-						else
-							keys[4][2] 		<= ~key_press;  // 0 originally 9 )
-							
-				'h03E: keys[3][2] 			<= ~key_press;  // * shift 8 was shift colon
-				'h04C: begin
-							keys[3][2] 		<= ~key_press;  // : now shift ;
-							shift_out 		<= key_press;
-						end
-							
-				'h055: keys[2][2] 			<= ~key_press;  // shift = was shift semi colon
-				'h041: keys[1][2] 			<= ~key_press;  // ,
-//            	'h04E: keys[0][2] 			<= ~key_press;  // -
-
-				'h049: keys[9][3] 			<= ~key_press;  // .
-				'h04A: keys[8][3] 			<= ~key_press;  // /
-				'h052: begin 
-							keys[7][3] 		<= ~key_press;  // ' shifted for @
-							if (left_alt)
-								shift_out 	<= ~key_press;
-							else
-								shift_out 	<= key_press;
-						end
-					
-				'h01C: keys[6][3] 			<= ~key_press;  // A
-				'h032: keys[5][3] 			<= ~key_press;  // B
-				'h021: keys[4][3] 			<= ~key_press;  // C
-				'h023: keys[3][3] 			<= ~key_press;  // D
-				'h024: keys[2][3] 			<= ~key_press;  // E
-				'h02B: keys[1][3] 			<= ~key_press;  // F
-				'h034: keys[0][3] 			<= ~key_press;  // G
-
-				'h033: keys[9][4] 			<= ~key_press;  // H
-				'h043: keys[8][4] 			<= ~key_press;  // I
-				'h03B: keys[7][4] 			<= ~key_press;  // J
-				'h042: keys[6][4] 			<= ~key_press;  // K
-				'h04B: keys[5][4] 			<= ~key_press;  // L
-				'h03A: keys[4][4] 			<= ~key_press;  // M
-				'h031: keys[3][4] 			<= ~key_press;  // N
-				'h044: keys[2][4] 			<= ~key_press;  // O
-				'h04D: keys[1][4] 			<= ~key_press;  // P
-				'h015: keys[0][4] 			<= ~key_press;  // Q
-
-				'h02D: keys[9][5] 			<= ~key_press;  // R
-				'h01B: keys[8][5] 			<= ~key_press;  // S
-				'h02C: keys[7][5] 			<= ~key_press;  // T
-				'h03C: keys[6][5] 			<= ~key_press;  // U
-				'h02A: keys[5][5] 			<= ~key_press;  // V
-				'h01D: keys[4][5] 			<= ~key_press;  // W
-				'h022: keys[3][5] 			<= ~key_press;  // X
-				'h035: keys[2][5] 			<= ~key_press;  // Y
-				'h01A: keys[1][5] 			<= ~key_press;  // Z
-				'h076: keys[0][5] 			<= ~key_press;  // ESCAPE
-			
-			
-			
-				endcase
-			end
+		// The Atom's SHIFT line. A Shift key drives it at once (the AtoMMC
+		// menu's "down" and Centipede's fire are Shift alone). A key that needs
+		// the other Shift state on the Atom (the cursor keys, PC " ' ^ ...)
+		// forces it while down; any release gives it back to the Shift keys
+		// (Down used to leave it held, and the AtoMMC menu kept scrolling).
+		if (is_shift)
+			shift_out <= ~key_press;
+		else if (key_press && key_shift[1])
+			shift_out <= key_shift[0];
 		else
-		if (layout == 2'b01) //usa
-			if (shift_press)
-			begin
-            
+			shift_out <= shift_press;
+	end
+end
 
-				shift_out  <= 1'b1;
-				casex(code)
-				'h005: turbo	      		<= 2'b00;  // f1
-				'h006: turbo	      		<= 2'b01;  // f2
-				'h004: turbo	      		<= 2'b10;  // f3
-				'h00C: turbo	      		<= 2'b11;  // f4
-				'h009: break_out      		<= ~key_press;  // F10 break			
-				'h111: repeat_out			<= ~key_press;  // Repeat (Right alt)	
-				'h012, 'h059: shift_press  	<= ~key_press;  // Left SHIFT // Right SHIFT
-				'h011: left_alt				<= key_press;   // Left ALT
-				'h014, 'h114: ctrl_out		<= ~key_press;  // Left ctrl
-				
-				'h029: keys[9][0] 			<= ~key_press;  // space
-				'h054: keys[8][0]			<= ~key_press;  // left sq bracket [
-				'h05D: keys[7][0] 			<= ~key_press;  // back slash h05d							
-				'h05B: keys[6][0] 			<= ~key_press;  // ]		
-//				'h00D: keys[5][0] 			<= ~key_press;  // UP moved to shift 6
-				'h058: keys[4][0] 			<= ~key_press;  // LOCK (CAPS LOCK)
-				'hx74: keys[3][0] 			<= ~key_press;  // RIGHT
-				'hx6B: begin
-							keys[3][0] 		<= ~key_press;  // LEFT
-							shift_out  		<= 1'b0;
-						end
-				'hx75: keys[2][0] 			<= ~key_press;  // UP
-				'hx72: begin
-							keys[2][0] 		<= ~key_press;  // DOWN
-							shift_out  		<= 1'b0;
-						end
-				'h05A: keys[6][1] 			<= ~key_press;  // RETURN
-				'h00D: keys[5][1] 			<= ~key_press;  // COPY (TAB)
-				'h066: keys[4][1] 			<= ~key_press;  // DELETE (Backspace)
-				'h045: keys[3][1] 			<= ~key_press;  // 0
-				'h016: keys[2][1] 			<= ~key_press;  // 1
-				'h01E: keys[1][1] 			<= ~key_press;  // 2
-				'h00E: keys[1][1] 			<= ~key_press;  // 2 layout indentifier
-				'h026: keys[0][1] 			<= ~key_press;  // 3
-
-				'h025: keys[9][2] 			<= ~key_press;  // 4
-				'h02E: keys[8][2] 			<= ~key_press;  // 5
-				'h036: keys[7][2] 			<= ~key_press;  // 6
-				'h03D: keys[6][2] 			<= ~key_press;  // 7
-				'h052: begin
-							keys[6][2] 		<= ~key_press;  // '
-							shift_out 		<= 1'b0;
-						end
-				'h03E: keys[5][2] 			<= ~key_press;  // 8
-				'h046: keys[4][2] 			<= ~key_press;  // 9
-//            	'h052: keys[3][2] 			<= ~key_press;  //  : moved to shift ;
-				'h04C: keys[2][2] 			<= ~key_press;  // ;
-				'h041: keys[1][2] 			<= ~key_press;  // ,
-				'h04E: keys[0][2] 			<= ~key_press;  // -
-			
-				'h055: begin
-							keys[0][2] 		<= ~key_press;  // = was shift - 
-							shift_out 		<= 1'b0;
-						end
-
-				'h049: keys[9][3] 			<= ~key_press;  // .
-				'h04A: keys[8][3] 			<= ~key_press;  // /
-//            	'h055: keys[7][3] 			<= ~key_press;  // moved to shift 2 
-				'h01C: keys[6][3] 			<= ~key_press;  // A
-				'h032: keys[5][3] 			<= ~key_press;  // B
-				'h021: keys[4][3] 			<= ~key_press;  // C
-				'h023: keys[3][3] 			<= ~key_press;  // D
-				'h024: keys[2][3] 			<= ~key_press;  // E
-				'h02B: keys[1][3] 			<= ~key_press;  // F
-				'h034: keys[0][3] 			<= ~key_press;  // G
-
-				'h033: keys[9][4] 			<= ~key_press;  // H
-				'h043: keys[8][4] 			<= ~key_press;  // I
-				'h03B: keys[7][4] 			<= ~key_press;  // J
-				'h042: keys[6][4] 			<= ~key_press;  // K
-				'h04B: keys[5][4] 			<= ~key_press;  // L
-				'h03A: keys[4][4] 			<= ~key_press;  // M
-				'h031: keys[3][4] 			<= ~key_press;  // N
-				'h044: keys[2][4] 			<= ~key_press;  // O
-				'h04D: keys[1][4] 			<= ~key_press;  // P
-				'h015: keys[0][4] 			<= ~key_press;  // Q
-
-				'h02D: keys[9][5] 			<= ~key_press;  // R
-				'h01B: keys[8][5] 			<= ~key_press;  // S
-				'h02C: keys[7][5] 			<= ~key_press;  // T
-				'h03C: keys[6][5] 			<= ~key_press;  // U
-				'h02A: keys[5][5] 			<= ~key_press;  // V
-				'h01D: keys[4][5] 			<= ~key_press;  // W
-				'h022: keys[3][5] 			<= ~key_press;  // X
-				'h035: keys[2][5] 			<= ~key_press;  // Y
-				'h01A: keys[1][5] 			<= ~key_press;  // Z
-				'h076: keys[0][5] 			<= ~key_press;  // ESCAPE
-			
-			
-			
-				endcase
-			end
-			else
-			begin
-				shift_out  <= 1'b0;
-				casex(code)
-				'h005: turbo	      		<= 2'b00;  // f1
-				'h006: turbo	      		<= 2'b01;  // f2
-				'h004: turbo	      		<= 2'b10;  // f3
-				'h00C: turbo	      		<= 2'b11;  // f4
-				'h009: break_out      		<= ~key_press;  // F10 break			
-				'h111: repeat_out			<= ~key_press;  // Repeat (Right alt)	
-				'h012, 'h059: shift_press   <= ~key_press;  // Left SHIFT // Right SHIFT
-				'h011: left_alt				<= key_press;   // Left ALT
-				'h014, 'h114: ctrl_out		<= ~key_press;  // Left ctrl
-				
-				'h029: keys[9][0] 			<= ~key_press;  // space
-				'h054: keys[8][0]			<= ~key_press;  // left sq bracket [
-				'h05D: keys[7][0] 			<= ~key_press;  // back slash h05d									
-				'h05B: keys[6][0] 			<= ~key_press;  // ]		
-				'h036: begin
-							keys[5][0] 		<= ~key_press;  // UP
-							if (left_alt)
-								shift_out  	<= 1'b0;
-							else
-								shift_out  	<= 1'b1;
-						end
-				'h058: keys[4][0] 			<= ~key_press;  // LOCK (CAPS LOCK)
-				'hx74: begin
-							keys[3][0] 		<= ~key_press;  // RIGHT
-							shift_out  		<= 1'b1;
-						end
-					'hx6B: keys[3][0] 		<= ~key_press;  // LEFT				
-					'hx75: begin
-							keys[2][0] 		<= ~key_press;  // UP
-							shift_out  		<= 1'b1;
-						end
-				'hx72: keys[2][0] 			<= ~key_press;  // DOWN
-					
-
-				'h05A: keys[6][1] 			<= ~key_press;  // RETURN
-				'h00D: keys[5][1] 			<= ~key_press;  // TAB (COPY)
-				'h066: keys[4][1] 			<= ~key_press;  // BACKSPACE (DELETE)
-
-				'h016: keys[2][1] 			<= ~key_press;  // 1 !
-				'h052: keys[1][1] 			<= ~key_press;  // ' shifted for "
-				'h026: keys[0][1] 			<= ~key_press;  // 3 # shift 3 non uk
-						
-				'h025: keys[9][2] 			<= ~key_press;  // 4 $
-				'h02E: keys[8][2] 			<= ~key_press;  // 5 %
-			// 6 key moved to up
-				'h03D: keys[7][2] 			<= ~key_press;  // 7 originally 6 &
- //           	'h03E: keys[6][2] 			<= ~key_press;  // 8 originally 7 now moved 
-				'h046: keys[5][2] 			<= ~key_press;  // 9 originally 8 (
-				'h045: if (left_alt)
-							keys[3][1] 		<= ~key_press;  // 0 shifted
-						else
-							keys[4][2] 		<= ~key_press;  // 0 originally 9 )
-							
-				'h03E: keys[3][2] 			<= ~key_press;  // shift 8 was shift colon
-				'h04C: begin
-							keys[3][2] 		<= ~key_press;  // : now shift ;
-							shift_out 		<= 1'b1;
-						end
-							
-				'h055: keys[2][2] 			<= ~key_press;  // shift = was shift semi colon
-				'h041: keys[1][2] 			<= ~key_press;  // ,
-//            	'h04E: keys[0][2] 			<= ~key_press;  // -
-
-				'h049: keys[9][3] 			<= ~key_press;  // .
-				'h04A: keys[8][3] 			<= ~key_press;  // /
-				'h01E: begin 
-							keys[7][3] 		<= ~key_press;  // 2 shifted for @
-							if (left_alt)
-								shift_out 	<= 1'b0;
-							else
-								shift_out 	<= 1'b1;
-						end
-					
-				'h01C: keys[6][3] 			<= ~key_press;  // A
-				'h032: keys[5][3] 			<= ~key_press;  // B
-				'h021: keys[4][3] 			<= ~key_press;  // C
-				'h023: keys[3][3] 			<= ~key_press;  // D
-				'h024: keys[2][3] 			<= ~key_press;  // E
-				'h02B: keys[1][3] 			<= ~key_press;  // F
-				'h034: keys[0][3] 			<= ~key_press;  // G
-
-				'h033: keys[9][4] 			<= ~key_press;  // H
-				'h043: keys[8][4] 			<= ~key_press;  // I
-				'h03B: keys[7][4] 			<= ~key_press;  // J
-				'h042: keys[6][4] 			<= ~key_press;  // K
-				'h04B: keys[5][4] 			<= ~key_press;  // L
-				'h03A: keys[4][4] 			<= ~key_press;  // M
-				'h031: keys[3][4] 			<= ~key_press;  // N
-				'h044: keys[2][4] 			<= ~key_press;  // O
-				'h04D: keys[1][4] 			<= ~key_press;  // P
-				'h015: keys[0][4] 			<= ~key_press;  // Q
-
-				'h02D: keys[9][5] 			<= ~key_press;  // R
-				'h01B: keys[8][5] 			<= ~key_press;  // S
-				'h02C: keys[7][5] 			<= ~key_press;  // T
-				'h03C: keys[6][5] 			<= ~key_press;  // U
-				'h02A: keys[5][5] 			<= ~key_press;  // V
-				'h01D: keys[4][5] 			<= ~key_press;  // W
-				'h022: keys[3][5] 			<= ~key_press;  // X
-				'h035: keys[2][5] 			<= ~key_press;  // Y
-				'h01A: keys[1][5] 			<= ~key_press;  // Z
-				'h076: keys[0][5] 			<= ~key_press;  // ESCAPE
-			
-			
-			
-				endcase
-			end
-		else
-		if (layout == 2'b10) //orig
-			if (shift_press)
-			begin
-            
-
-				shift_out  <= 1'b1;
-				casex(code)
-				'h005: turbo	      		<= 2'b00;  // f1
-				'h006: turbo	      		<= 2'b01;  // f2
-				'h004: turbo	      		<= 2'b10;  // f3
-				'h00C: turbo	      		<= 2'b11;  // f4
-				'h009: break_out      		<= ~key_press;  // F10 break			
-				'h011: repeat_out			<= ~key_press;  // Repeat (Left ALT)
-				'h012, 'h059: shift_press  	<= ~key_press;  // Left SHIFT // Right SHIFT
-//				'h011: left_alt				<= key_press;   // Left ALT
-				'h014: ctrl_out				<= ~key_press;  // Left ctrl
-				'h114: ctrl_out				<= ~key_press;  // Right ctrl
-				
-				
-				'h029: keys[9][0] 			<= ~key_press;  // space
-				'h054: keys[8][0]			<= ~key_press;  // [
-				'h05D: keys[7][0] 			<= ~key_press;  // back slash 				
-				'h05B: keys[6][0] 			<= ~key_press;  // ]		
-				'h00D: keys[5][0] 			<= ~key_press;  // UP (TAB)
-				'h058: keys[4][0] 			<= ~key_press;  // Shift Lock (CAPS LOCK)
-				'hx74: keys[3][0] 			<= ~key_press;  // RIGHT
-				'hx75: keys[2][0] 			<= ~key_press;  // UP
-
-				'h05A: keys[6][1] 			<= ~key_press;  // RETURN
-				'hx69: keys[5][1] 			<= ~key_press;  // COPY (END)
-				'h066: keys[4][1] 			<= ~key_press;  // DELETE (Bacspace)
-				'h045: keys[3][1] 			<= ~key_press;  // 0
-				'h016: keys[2][1] 			<= ~key_press;  // 1
-				'h01E: keys[1][1] 			<= ~key_press;  // 2
-				'h026: keys[0][1] 			<= ~key_press;  // 3
-
-				'h025: keys[9][2] 			<= ~key_press;  // 4
-				'h02E: keys[8][2] 			<= ~key_press;  // 5
-				'h036: keys[7][2] 			<= ~key_press;  // 6
-				'h03D: keys[6][2] 			<= ~key_press;  // 7
-				'h03E: keys[5][2] 			<= ~key_press;  // 8
-				'h046: keys[4][2] 			<= ~key_press;  // 9
-				'h052: keys[3][2] 			<= ~key_press;  // :(')
-				'h04C: keys[2][2] 			<= ~key_press;  // ;
-				'h041: keys[1][2] 			<= ~key_press;  // ,
-				'h04E: keys[0][2] 			<= ~key_press;  // -
-
-				'h049: keys[9][3] 			<= ~key_press;  // .
-				'h04A: keys[8][3] 			<= ~key_press;  // /
-				'h055: keys[7][3] 			<= ~key_press;  // @ (=) 
-				'h01C: keys[6][3] 			<= ~key_press;  // A
-				'h032: keys[5][3] 			<= ~key_press;  // B
-				'h021: keys[4][3] 			<= ~key_press;  // C
-				'h023: keys[3][3] 			<= ~key_press;  // D
-				'h024: keys[2][3] 			<= ~key_press;  // E
-				'h02B: keys[1][3] 			<= ~key_press;  // F
-				'h034: keys[0][3] 			<= ~key_press;  // G
-
-				'h033: keys[9][4] 			<= ~key_press;  // H
-				'h043: keys[8][4] 			<= ~key_press;  // I
-				'h03B: keys[7][4] 			<= ~key_press;  // J
-				'h042: keys[6][4] 			<= ~key_press;  // K
-				'h04B: keys[5][4] 			<= ~key_press;  // L
-				'h03A: keys[4][4] 			<= ~key_press;  // M
-				'h031: keys[3][4] 			<= ~key_press;  // N
-				'h044: keys[2][4] 			<= ~key_press;  // O
-				'h04D: keys[1][4] 			<= ~key_press;  // P
-				'h015: keys[0][4] 			<= ~key_press;  // Q
-
-				'h02D: keys[9][5] 			<= ~key_press;  // R
-				'h01B: keys[8][5] 			<= ~key_press;  // S
-				'h02C: keys[7][5] 			<= ~key_press;  // T
-				'h03C: keys[6][5] 			<= ~key_press;  // U
-				'h02A: keys[5][5] 			<= ~key_press;  // V
-				'h01D: keys[4][5] 			<= ~key_press;  // W
-				'h022: keys[3][5] 			<= ~key_press;  // X
-				'h035: keys[2][5] 			<= ~key_press;  // Y
-				'h01A: keys[1][5] 			<= ~key_press;  // Z
-				'h076: keys[0][5] 			<= ~key_press;  // ESCAPE
-			
-			
-			
-				endcase
-			end
-			else
-			begin
-				shift_out  <= 1'b0;
-				casex(code)
-				'h005: turbo	      		<= 2'b00;  // f1
-				'h006: turbo	      		<= 2'b01;  // f2
-				'h004: turbo	      		<= 2'b10;  // f3
-				'h00C: turbo	      		<= 2'b11;  // f4
-				'h009: break_out      		<= ~key_press;  // F10 break			
-				'h011: repeat_out			<= ~key_press;  // Repeat (Left Alt)
-				'h012, 'h059: shift_press  	<= ~key_press;  // Left SHIFT // Right SHIFT
-				'h014: ctrl_out				<= ~key_press;  // Left ctrl
-				'h114: ctrl_out				<= ~key_press;  // Right ctrl
-				
-				
-				'h029: keys[9][0] 			<= ~key_press;  // space
-				'h054: keys[8][0]			<= ~key_press;  //  [
-				'h05D: keys[7][0] 			<= ~key_press;  // back slash 				
-				'h05B: keys[6][0] 			<= ~key_press;  // ]		
-				'h00D: keys[5][0] 			<= ~key_press;  // UP (TAB)
-				'h058: keys[4][0] 			<= ~key_press;  // CAPS LOCK
-				'hx74: keys[3][0] 			<= ~key_press;  // RIGHT
-				'hx75: keys[2][0] 			<= ~key_press;  // UP
-
-				'h05A: keys[6][1] 			<= ~key_press;  // RETURN
-				'hx69: keys[5][1] 			<= ~key_press;  // COPY (END)
-				'h066: keys[4][1] 			<= ~key_press;  // DELETE (Backspace)
-				'h045: keys[3][1] 			<= ~key_press;  // 0
-				'h016: keys[2][1] 			<= ~key_press;  // 1
-				'h01E: keys[1][1] 			<= ~key_press;  // 2
-				'h026: keys[0][1] 			<= ~key_press;  // 3
-
-				'h025: keys[9][2] 			<= ~key_press;  // 4
-				'h02E: keys[8][2] 			<= ~key_press;  // 5
-				'h036: keys[7][2] 			<= ~key_press;  // 6
-				'h03D: keys[6][2] 			<= ~key_press;  // 7
-				'h03E: keys[5][2] 			<= ~key_press;  // 8
-				'h046: keys[4][2] 			<= ~key_press;  // 9
-				'h052: keys[3][2] 			<= ~key_press;  // :(')
-				'h04C: keys[2][2] 			<= ~key_press;  // ;
-				'h041: keys[1][2] 			<= ~key_press;  // ,
-				'h04E: keys[0][2] 			<= ~key_press;  // -
-
-				'h049: keys[9][3] 			<= ~key_press;  // .
-				'h04A: keys[8][3] 			<= ~key_press;  // /
-				'h055: keys[7][3] 			<= ~key_press;  // @ (=) 
-				'h01C: keys[6][3] 			<= ~key_press;  // A
-				'h032: keys[5][3] 			<= ~key_press;  // B
-				'h021: keys[4][3] 			<= ~key_press;  // C
-				'h023: keys[3][3] 			<= ~key_press;  // D
-				'h024: keys[2][3] 			<= ~key_press;  // E
-				'h02B: keys[1][3] 			<= ~key_press;  // F
-				'h034: keys[0][3] 			<= ~key_press;  // G
-
-				'h033: keys[9][4] 			<= ~key_press;  // H
-				'h043: keys[8][4] 			<= ~key_press;  // I
-				'h03B: keys[7][4] 			<= ~key_press;  // J
-				'h042: keys[6][4] 			<= ~key_press;  // K
-				'h04B: keys[5][4] 			<= ~key_press;  // L
-				'h03A: keys[4][4] 			<= ~key_press;  // M
-				'h031: keys[3][4] 			<= ~key_press;  // N
-				'h044: keys[2][4] 			<= ~key_press;  // O
-				'h04D: keys[1][4] 			<= ~key_press;  // P
-				'h015: keys[0][4] 			<= ~key_press;  // Q
-
-				'h02D: keys[9][5] 			<= ~key_press;  // R
-				'h01B: keys[8][5] 			<= ~key_press;  // S
-				'h02C: keys[7][5] 			<= ~key_press;  // T
-				'h03C: keys[6][5] 			<= ~key_press;  // U
-				'h02A: keys[5][5] 			<= ~key_press;  // V
-				'h01D: keys[4][5] 			<= ~key_press;  // W
-				'h022: keys[3][5] 			<= ~key_press;  // X
-				'h035: keys[2][5] 			<= ~key_press;  // Y
-				'h01A: keys[1][5] 			<= ~key_press;  // Z
-				'h076: keys[0][5] 			<= ~key_press;  // ESCAPE
-			
-			
-			
-				endcase
-			end
-		else
-		if (layout == 2'b11) //game shift and ctrl swapped
-            if (shift_press)
-			begin
-            
-
-				shift_out  <= 1'b1;
-				casex(code)
-				'h005: turbo	      		<= 2'b00;  // f1
-				'h006: turbo	      		<= 2'b01;  // f2
-				'h004: turbo	      		<= 2'b10;  // f3
-				'h00C: turbo	      		<= 2'b11;  // f4
-				'h009: break_out      		<= ~key_press;  // F10 break			
-				'h111: repeat_out			<= ~key_press;  // Repeat (right ALT)
-				'h014, 'h059: shift_press  	<= ~key_press;  // Left ctrl // Right SHIFT
-//				'h011: left_alt				<= key_press;   // Left ALT
-				'h012: ctrl_out				<= ~key_press;  // Left shift
-				'h114: ctrl_out				<= ~key_press;  // Right ctrl
-				
-				
-				'h029: keys[9][0] 			<= ~key_press;  // space
-				'h054: keys[8][0]			<= ~key_press;  // [
-				'h05D: keys[7][0] 			<= ~key_press;  // back slash 				
-				'h05B: keys[6][0] 			<= ~key_press;  // ]		
-				'h00D: keys[5][0] 			<= ~key_press;  // UP (TAB)
-				'h058: keys[4][0] 			<= ~key_press;  // Shift Lock (CAPS LOCK)
-				'hx74: keys[3][0] 			<= ~key_press;  // RIGHT
-				'hx75: keys[2][0] 			<= ~key_press;  // UP
-
-				'h05A: keys[6][1] 			<= ~key_press;  // RETURN
-				'hx69: keys[5][1] 			<= ~key_press;  // COPY (END)
-				'h066: keys[4][1] 			<= ~key_press;  // DELETE (Bacspace)
-				'h045: keys[3][1] 			<= ~key_press;  // 0
-				'h016: keys[2][1] 			<= ~key_press;  // 1
-				'h01E: keys[1][1] 			<= ~key_press;  // 2
-				'h026: keys[0][1] 			<= ~key_press;  // 3
-
-				'h025: keys[9][2] 			<= ~key_press;  // 4
-				'h02E: keys[8][2] 			<= ~key_press;  // 5
-				'h036: keys[7][2] 			<= ~key_press;  // 6
-				'h03D: keys[6][2] 			<= ~key_press;  // 7
-				'h03E: keys[5][2] 			<= ~key_press;  // 8
-				'h046: keys[4][2] 			<= ~key_press;  // 9
-				'h052: keys[3][2] 			<= ~key_press;  // :(')
-				'h04C: keys[2][2] 			<= ~key_press;  // ;
-				'h041: keys[1][2] 			<= ~key_press;  // ,
-				'h04E: keys[0][2] 			<= ~key_press;  // -
-
-				'h049: keys[9][3] 			<= ~key_press;  // .
-				'h04A: keys[8][3] 			<= ~key_press;  // /
-				'h055: keys[7][3] 			<= ~key_press;  // @ (=) 
-				'h01C: keys[6][3] 			<= ~key_press;  // A
-				'h032: keys[5][3] 			<= ~key_press;  // B
-				'h021: keys[4][3] 			<= ~key_press;  // C
-				'h023: keys[3][3] 			<= ~key_press;  // D
-				'h024: keys[2][3] 			<= ~key_press;  // E
-				'h02B: keys[1][3] 			<= ~key_press;  // F
-				'h034: keys[0][3] 			<= ~key_press;  // G
-
-				'h033: keys[9][4] 			<= ~key_press;  // H
-				'h043: keys[8][4] 			<= ~key_press;  // I
-				'h03B: keys[7][4] 			<= ~key_press;  // J
-				'h042: keys[6][4] 			<= ~key_press;  // K
-				'h04B: keys[5][4] 			<= ~key_press;  // L
-				'h03A: keys[4][4] 			<= ~key_press;  // M
-				'h031: keys[3][4] 			<= ~key_press;  // N
-				'h044: keys[2][4] 			<= ~key_press;  // O
-				'h04D: keys[1][4] 			<= ~key_press;  // P
-				'h015: keys[0][4] 			<= ~key_press;  // Q
-
-				'h02D: keys[9][5] 			<= ~key_press;  // R
-				'h01B: keys[8][5] 			<= ~key_press;  // S
-				'h02C: keys[7][5] 			<= ~key_press;  // T
-				'h03C: keys[6][5] 			<= ~key_press;  // U
-				'h02A: keys[5][5] 			<= ~key_press;  // V
-				'h01D: keys[4][5] 			<= ~key_press;  // W
-				'h022: keys[3][5] 			<= ~key_press;  // X
-				'h035: keys[2][5] 			<= ~key_press;  // Y
-				'h01A: keys[1][5] 			<= ~key_press;  // Z
-				'h076: keys[0][5] 			<= ~key_press;  // ESCAPE
-			
-			
-			
-				endcase
-			end
-			else
-			begin
-				shift_out  <= 1'b0;
-				casex(code)
-				'h005: turbo	      		<= 2'b00;  // f1
-				'h006: turbo	      		<= 2'b01;  // f2
-				'h004: turbo	      		<= 2'b10;  // f3
-				'h00C: turbo	      		<= 2'b11;  // f4
-				'h009: break_out      		<= ~key_press;  // F10 break			
-				'h111: repeat_out			<= ~key_press;  // Repeat (right Alt)
-				'h014, 'h059: shift_press  	<= ~key_press;  // Left ctrl // Right SHIFT
-				'h012: ctrl_out				<= ~key_press;  // Left shift
-				'h114: ctrl_out				<= ~key_press;  // Right ctrl
-				
-				
-				'h029: keys[9][0] 			<= ~key_press;  // space
-				'h054: keys[8][0]			<= ~key_press;  //  [
-				'h05D: keys[7][0] 			<= ~key_press;  // back slash 				
-				'h05B: keys[6][0] 			<= ~key_press;  // ]		
-				'h00D: keys[5][0] 			<= ~key_press;  // UP (TAB)
-				'h058: keys[4][0] 			<= ~key_press;  // CAPS LOCK
-				'hx74: keys[3][0] 			<= ~key_press;  // RIGHT
-				'hx75: keys[2][0] 			<= ~key_press;  // UP
-
-				'h05A: keys[6][1] 			<= ~key_press;  // RETURN
-				'hx69: keys[5][1] 			<= ~key_press;  // COPY (END)
-				'h066: keys[4][1] 			<= ~key_press;  // DELETE (Backspace)
-				'h045: keys[3][1] 			<= ~key_press;  // 0
-				'h016: keys[2][1] 			<= ~key_press;  // 1
-				'h01E: keys[1][1] 			<= ~key_press;  // 2
-				'h026: keys[0][1] 			<= ~key_press;  // 3
-
-				'h025: keys[9][2] 			<= ~key_press;  // 4
-				'h02E: keys[8][2] 			<= ~key_press;  // 5
-				'h036: keys[7][2] 			<= ~key_press;  // 6
-				'h03D: keys[6][2] 			<= ~key_press;  // 7
-				'h03E: keys[5][2] 			<= ~key_press;  // 8
-				'h046: keys[4][2] 			<= ~key_press;  // 9
-				'h052: keys[3][2] 			<= ~key_press;  // :(')
-				'h04C: keys[2][2] 			<= ~key_press;  // ;
-				'h041: keys[1][2] 			<= ~key_press;  // ,
-				'h04E: keys[0][2] 			<= ~key_press;  // -
-
-				'h049: keys[9][3] 			<= ~key_press;  // .
-				'h04A: keys[8][3] 			<= ~key_press;  // /
-				'h055: keys[7][3] 			<= ~key_press;  // @ (=) 
-				'h01C: keys[6][3] 			<= ~key_press;  // A
-				'h032: keys[5][3] 			<= ~key_press;  // B
-				'h021: keys[4][3] 			<= ~key_press;  // C
-				'h023: keys[3][3] 			<= ~key_press;  // D
-				'h024: keys[2][3] 			<= ~key_press;  // E
-				'h02B: keys[1][3] 			<= ~key_press;  // F
-				'h034: keys[0][3] 			<= ~key_press;  // G
-
-				'h033: keys[9][4] 			<= ~key_press;  // H
-				'h043: keys[8][4] 			<= ~key_press;  // I
-				'h03B: keys[7][4] 			<= ~key_press;  // J
-				'h042: keys[6][4] 			<= ~key_press;  // K
-				'h04B: keys[5][4] 			<= ~key_press;  // L
-				'h03A: keys[4][4] 			<= ~key_press;  // M
-				'h031: keys[3][4] 			<= ~key_press;  // N
-				'h044: keys[2][4] 			<= ~key_press;  // O
-				'h04D: keys[1][4] 			<= ~key_press;  // P
-				'h015: keys[0][4] 			<= ~key_press;  // Q
-
-				'h02D: keys[9][5] 			<= ~key_press;  // R
-				'h01B: keys[8][5] 			<= ~key_press;  // S
-				'h02C: keys[7][5] 			<= ~key_press;  // T
-				'h03C: keys[6][5] 			<= ~key_press;  // U
-				'h02A: keys[5][5] 			<= ~key_press;  // V
-				'h01D: keys[4][5] 			<= ~key_press;  // W
-				'h022: keys[3][5] 			<= ~key_press;  // X
-				'h035: keys[2][5] 			<= ~key_press;  // Y
-				'h01A: keys[1][5] 			<= ~key_press;  // Z
-				'h076: keys[0][5] 			<= ~key_press;  // ESCAPE
-			
-			
-			
-				endcase
-			end
-			
+// The matrix as the 8255 reads it. joy1 and joy2 (active low) are ANDed into
+// rows 0 and 1, bits 4..0: up, right, down, left, fire.
+always @(*) begin
+	if (row == 4'd0)
+		keyout = keys[row] & {1'b1, joy1[3], joy1[0], joy1[2], joy1[1], joy1[4]};
+	else if (row == 4'd1)
+		keyout = keys[row] & {1'b1, joy2[3], joy2[0], joy2[2], joy2[1], joy2[4]};
+	else
+		keyout = keys[row];
 end
 
 endmodule
-
