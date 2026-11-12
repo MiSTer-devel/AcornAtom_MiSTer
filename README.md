@@ -12,7 +12,7 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
 * System Roms with mmc (to access the SD card): AtoMMC 3.02
 * Seven additional Roms and 1 slot of ram to download additional Rom.
 * Two character sets.
-* Tape: UEF images (plain or gzipped) from the OSD (Tape), played at 8x with a status bar and a hint that says what to type; tape input through the MiSTer's ADC too
+* Tape: UEF (plain or gzipped) and CSW images from the OSD (Tape), played at 8x with a status bar and a hint that says what to type; tape input through the MiSTer's ADC too
 * Sound is mixed: the speaker, the SID and the tape tone, each with an on/off switch
 * Black or Dark background
 * MC6847 video with the datasheet's 15 kHz timing (455 pixel clocks a line, 262 lines,
@@ -23,8 +23,7 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
   mouse moves it), the version register (#BDEF), and VGA80x40: 80x40 coloured text
   (#BDE0 bit 7, cursor and colours #BDE2-#BDE5), shown at 15 kHz as 640x480
   interlaced (the HDMI scaler weaves the fields). FPGAUTIL in utility ROM bank 6
-  turns it on: `?#BFFF=6` then `VGA80`. Ozmoo and the Tube clients (CP/M, FLEX,
-  Z80 BBC BASIC) use it through OSWRCH80
+  turns it on: `?#BFFF=6` then `VGA80`; the archive's `LIB/OSWRCH80` prints to it
 * Atom or BBC Basic mode
 * Colour palette
 * SID sound
@@ -32,6 +31,8 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
 * Turbo mode (F1-F4), or a CPU speed chosen in the OSD and applied at reset
 * BREAK on F10, Shift-BREAK (AtoMMC menu) on F9, Ctrl-BREAK (no AtoMMC, for tapes) on F11; also OSD buttons
 * Four keyboards: PC (US, the default), PC (UK), Atom (original), Atom (game)
+* Joysticks: the AtoMMC joystick (games marked JS in the archive) and the keyboard joysticks (joystick 1 on
+  keyboard row 0, joystick 2 on row 1)
 * Load ROM: a 192 KB image in the layout of roms/ATOM192k.mif replaces every ROM and RAM bank
 
 ## OSD
@@ -104,9 +105,10 @@ The AtoMMC ROM reads its software from a FAT-formatted VHD (the Atom's SD card).
 the games/AcornAtom folder on your SD card and mount it on the OSD's "Pri. disk (SD)" row;
 the mount is remembered across core starts.
 
-The best software source is the Atom Software Archive (over 1,100 titles with a menu),
-maintained by Hoglet on stardot.org.uk:
-https://github.com/hoglet67/AtomSoftwareArchive/releases. Take the plain AtoMMC zip
+The best software source is the
+[Atom Software Archive](https://github.com/hoglet67/AtomSoftwareArchive/releases) (over
+1,100 titles with a menu), maintained by Hoglet on [stardot.org.uk](https://stardot.org.uk/forums/viewforum.php?f=44).
+Take the plain AtoMMC zip
 (`AtomSoftwareArchive_<date>_V13.01.zip`, not the `_SDDOS2`, `_SDDOS3`, `_ECONET`, `_GoSDC`,
 `_BEEBSCSI0` or `_JS` ones) and unzip it into the root of the VHD. With mtools installed,
 `tools/make_boot_vhd.py AtomSoftwareArchive_..._V13.01.zip boot.vhd` builds the VHD in one
