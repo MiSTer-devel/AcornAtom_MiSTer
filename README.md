@@ -100,16 +100,21 @@ The original keyboard is as originally written ie shift+8 = ( and shift+9 = )
 The game keyboard just reverses the ctrl and shift as on the original keyboard, for games like Asteroids. 
 
 ## Instructions
-You need a boot.vhd file formatted as FAT and around 100MB. There is a blank.zip in releases. Unzip and rename to boot.vhd
+The AtoMMC ROM reads its software from a FAT-formatted VHD (the Atom's SD card). Place it in
+the games/AcornAtom folder on your SD card and mount it on the OSD's "Pri. disk (SD)" row;
+the mount is remembered across core starts.
 
-Attach the boot.vhd and copy software onto it.
+The best software source is the Atom Software Archive (over 1,100 titles with a menu),
+maintained by Hoglet on stardot.org.uk:
+https://github.com/hoglet67/AtomSoftwareArchive/releases. Take the plain AtoMMC zip
+(`AtomSoftwareArchive_<date>_V13.01.zip`, not the `_SDDOS2`, `_SDDOS3`, `_ECONET`, `_GoSDC`,
+`_BEEBSCSI0` or `_JS` ones) and unzip it into the root of the VHD. With mtools installed,
+`tools/make_boot_vhd.py AtomSoftwareArchive_..._V13.01.zip boot.vhd` builds the VHD in one
+step. Otherwise, releases/blank.zip holds an empty 100 MB FAT VHD: unzip it, rename it to
+boot.vhd, attach it on a PC and copy the files onto it.
 
-Detach the VHD and place the file in the games/AcornAtom folder on your SD card, and mount it
-on the OSD's "Pri. disk (SD)" row; the mount is remembered across core starts.
-
-To auto boot the software menu press Shift-BREAK (F9, or Shift+F10); Ctrl-BREAK (F11, or Ctrl+F10) starts without the MMC ROM
-
-The best software source is the AtomSoftwareArchive V11 zip 11.9MB
+To auto boot the software menu press Shift-BREAK (F9, or Shift+F10); Ctrl-BREAK (F11, or Ctrl+F10) starts without the MMC ROM.
+In the menu, Shift moves down and Ctrl moves up (as on a real Atom); the Down arrow also moves down.
 
 There are several sites dedicated to the atom.
 
