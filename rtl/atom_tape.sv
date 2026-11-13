@@ -5,8 +5,18 @@
 //  Format. UEF ("UEF File!"), plain or gzipped: chunks &0100 (8N1 data), &0104 (defined format: bits, parity,
 //  stop bits; a negative stop count adds one short wave, as the UEF spec
 //  says), &0110 (carrier: cycles of 2400 Hz), &0111 (carrier, &AA, carrier),
-//  &0112 (gap, n/600 s). Others (&0000 origin, &0117 baud, which is always
-//  300 on the Atom) are skipped. A gzipped UEF (most UEF collections are) is
+//  &0112 (gap, n/600 s), &0116 (gap, a float of seconds) and &0114 (security
+//  cycles: single waves, see below). Others (&0000 origin, &0113 and &0115
+//  speed and phase, &0117 baud, which is always 300 on the Atom) are skipped.
+//
+//  &0114. MakeUEF, which made most UEFs of real Atom tapes, writes every
+//  stretch of tape it could not read as bytes this way (a byte with one wave
+//  too many, a dropout), with short &0110 and &0116 chunks between. The Atom
+//  reads most of them, so they are played wave for wave: without them the
+//  block is a byte short and ends in a checksum error. MakeUEF stores the
+//  first cycle in bit 0 and a slow (1200 Hz) cycle as 1: the UEF text says
+//  the opposite, its own examples agree with MakeUEF, and so does the time
+//  between the bytes on each side of such a stretch. A gzipped UEF (most UEF collections are) is
 //  expanded as it downloads (rtl/gunzip.sv). A CSW (v1/v2, RLE or Z-RLE) is
 //  read back into bytes as it downloads and stored as a UEF (rtl/csw_in.sv).
 //  Anything else reports "Tape format not supported"; more than 128 KB
@@ -162,6 +172,41 @@ reg [1:0]  p_lb;                              // length byte index
 reg [7:0]  p_b0, p_b1, p_b2;                  // first body bytes (format, counts)
 reg [7:0]  p_bits;                            // ticks per byte of the current data chunk / 16
 reg        p_extra;                           // a short wave after each byte
+reg [23:0] p_sn;                              // &0114: cycles left
+reg  [7:0] p_first, p_last;                   // &0114: 'P' = a pulse, not a wave
+reg [36:0] g_prod;                            // &0116: mantissa x 4800 ...
+reg  [7:0] g_exp;                             // ... and the exponent
+reg  [1:0] g_v;
+
+// A float of seconds as ticks (4800 a second), in two steps: the product,
+// then the shift. Saturates at 24 bits (58 minutes).
+function automatic [36:0] f_prod(input [31:0] f);
+	f_prod = {1'b1, f[22:0]} * 13'd4800;
+endfunction
+function automatic [23:0] f_ticks(input [36:0] prod, input [7:0] e);
+	reg [36:0] v;
+	begin
+		// seconds = 1.m x 2^(e - 127); the product is scaled by 2^23
+		if (e == 0) v = 0;
+		else if (e >= 8'd150) v = '1;
+		else if (8'd150 - e >= 8'd37) v = 0;
+		else v = prod >> (8'd150 - e);
+		f_ticks = |v[36:24] ? 24'hFFFFFF : v[23:0];
+	end
+endfunction
+
+// &0114: the ticks of the (up to eight) cycles in one byte
+function automatic [5:0] cyc_ticks(input [7:0] d, input [23:0] left, input first, input last);
+	reg [5:0] t;
+	begin
+		t = 0;
+		for (int j = 0; j < 8; j++) if (left > j) begin
+			if ((j == 0 && first) || (left == j + 1 && last)) t = t + (d[j] ? 6'd2 : 6'd1);
+			else t = t + (d[j] ? 6'd4 : 6'd2);
+		end
+		cyc_ticks = t;
+	end
+endfunction
 
 // Atom block header scanner over the data bytes.
 //
@@ -176,7 +221,16 @@ reg        p_extra;                           // a short wave after each byte
 // the player flips bit 7 of its flag byte and of its checksum byte (the
 // checksum is the sum of every byte of the block, the flag included) as it
 // plays them. Nothing else on the tape is changed, and a tape with correct
-// flags is played as it is.
+// flags is played as it is. Only a block whose checksum is right as it stands
+// is repaired: a recording of a real tape has right flags, and a wrong sum
+// there means the scanner lost its place.
+//
+// Bytes the UEF holds as waves (&0114, above) do not come past the scanner.
+// Inside a block's data the ticks of every chunk that is not data are added
+// up (h_lost), and at the next data byte they count as the bytes they would
+// have been (162 ticks each: ten bits and MakeUEF's extra wave), so the
+// scanner keeps its place to the block's end. More than three, or the
+// checksum among them: the block is given up.
 reg  [2:0] h_state;
 localparam H_SEEK = 3'd0, H_NAME = 3'd1, H_HDR = 3'd2, H_DATA = 3'd3;
 reg  [2:0] h_stars;
@@ -191,6 +245,13 @@ reg [24:0] h_off;                             // image offset of this block's fi
 reg [24:0] h_star;                            // ... of the current run of '*'
 reg [24:0] h_flag_off;                        // image offset of this block's flag byte
 reg        h_new;                             // this block starts a file
+reg  [7:0] h_sum;                             // the block's sum so far
+reg        h_mid;                             // inside a block's data
+reg [15:0] h_load;
+reg  [1:0] h_di;                              // data bytes seen, up to 2
+reg  [7:0] h_d0;                              // the first of them
+reg [15:0] h_lost;                            // ticks of other chunks met there
+reg        p_ok;                              // the previous block's checksum was right
 // the previous block, until the next header says whether it was its file's last
 reg        p_valid, p_more;
 reg [103:0] p_name;
@@ -215,7 +276,7 @@ reg [FW-1:0] ftab [0:NF-1];
 
 // the previous block was its file's last: repair it if it says otherwise
 task automatic prev_was_last;
-	if (p_more && nfix != NFIX) begin
+	if (p_more && p_ok && nfix != NFIX) begin
 		fix_flag[nfix[2:0]] <= p_flag_off;
 		fix_ck[nfix[2:0]]   <= p_ck_off;
 		nfix <= nfix + 1'd1;
@@ -237,6 +298,7 @@ task automatic scan(input [7:0] c);
 		end
 		else if (h_stars >= 3'd4) begin
 			h_stars <= 0; h_i <= 0; h_off <= h_star;
+			h_sum <= 8'hA8 + c;                     // four '*' and this
 			h_name <= {c == 8'h0D ? 8'h20 : c, {12{8'h20}}};
 			h_len <= c == 8'h0D ? 4'd0 : 4'd1;
 			if (c == 8'h0D) h_state <= H_HDR;
@@ -245,6 +307,7 @@ task automatic scan(input [7:0] c);
 		else h_stars <= 0;
 	end
 	H_NAME: begin
+		h_sum <= h_sum + c;
 		if (c == 8'h0D || h_i == 4'd14) begin h_state <= H_HDR; h_i <= 0; end
 		else begin
 			for (int k = 1; k < 13; k++) if (h_i == k) h_name[103 - 8 * k -: 8] <= c;
@@ -253,6 +316,7 @@ task automatic scan(input [7:0] c);
 		end
 	end
 	H_HDR: begin
+		h_sum <= h_sum + c;
 		h_i <= h_i + 1'd1;
 		case (h_i)
 		4'd0: begin h_flag <= c; h_flag_off <= addr; end
@@ -291,18 +355,37 @@ task automatic scan(input [7:0] c);
 			end
 			// data: length-1 + 1 bytes, then the checksum
 			h_skip <= {1'b0, h_lenm1} + 9'd2;
-			h_state <= H_DATA;
+			h_state <= H_DATA; h_mid <= 1'b0;
+			h_load <= {h_load_hi, c}; h_di <= 0;
 		end
 		default: ;
 		endcase
 	end
 	H_DATA: begin
-		if (h_skip == 9'd1) begin
-			h_state <= H_SEEK; h_stars <= 0;
-			p_valid <= 1'b1; p_more <= h_flag[7];
+		// bytes that went by as waves since the last data byte
+		reg [2:0] lost;
+		lost = !h_mid ? 3'd0 : h_lost < 16'd81 ? 3'd0 : h_lost < 16'd243 ? 3'd1 :
+		       h_lost < 16'd405 ? 3'd2 : h_lost < 16'd567 ? 3'd3 : 3'd4;
+		h_mid <= 1'b1; h_lost <= 0;
+		h_sum <= h_sum + c;
+		// A BASIC program saved with its own address as the exec address (most
+		// commercial tapes: exec = load = #2900) and not BASIC's #C2B2: the
+		// text starts with &0D and a line number under 32768. It is BASIC
+		// for the hint (*RUN would run the text as code). Exec elsewhere in
+		// the file is a machine-code program behind a BASIC line: left alone.
+		if (h_di != 2'd2) h_di <= h_di + 1'd1;
+		if (h_di == 0) h_d0 <= c;
+		if (h_di == 2'd1 && h_new && !f_skip && h_blk == 0 && h_exec == h_load &&
+		    h_d0 == 8'h0D && !c[7]) f_exec <= 16'hC2B2;
+		if (lost == 3'd4 || h_skip <= {6'd0, lost}) begin
+			h_state <= H_SEEK; h_stars <= 0; h_mid <= 1'b0;
+		end
+		else if (h_skip - lost == 9'd1) begin
+			h_state <= H_SEEK; h_stars <= 0; h_mid <= 1'b0;
+			p_valid <= 1'b1; p_more <= h_flag[7]; p_ok <= lost == 0 && h_sum == c;
 			p_name <= h_name; p_blk <= h_blk; p_flag_off <= h_flag_off; p_ck_off <= addr;
 		end
-		h_skip <= h_skip - 1'd1;
+		h_skip <= h_skip - lost - 1'd1;
 	end
 	default: h_state <= H_SEEK;
 	endcase
@@ -319,7 +402,14 @@ reg old_dl;
 always @(posedge clk) begin
 	old_dl <= dl;
 	info_req <= 1'b0;
+	// &0116's gap, two clocks after its last byte (no other chunk adds so soon)
+	g_v <= {g_v[0], 1'b0};
+	if (g_v[1]) begin
+		total <= total + f_ticks(g_prod, g_exp);
+		if (h_mid) h_lost <= (h_lost + f_ticks(g_prod, g_exp) > 25'hFFFF) ? 16'hFFFF : h_lost + f_ticks(g_prod, g_exp);
+	end
 	if (dl && !old_dl) begin
+		g_v <= 0; h_mid <= 1'b0; h_lost <= 0; p_ok <= 1'b0;
 		valid <= 1'b0; too_big <= 1'b0; total <= 0; len <= 0;
 		p_state <= P_SIG;
 		h_state <= H_SEEK; h_stars <= 0;
@@ -364,12 +454,31 @@ always @(posedge clk) begin
 					scan(data);
 				end
 			end
-			16'h0110: if (p_cnt == 1) total <= total + {15'd0, data, p_b0, 1'b0};
+			16'h0110: if (p_cnt == 1) begin
+				total <= total + {15'd0, data, p_b0, 1'b0};
+				if (h_mid) h_lost <= (h_lost + {data, p_b0, 1'b0} > 18'hFFFF) ? 16'hFFFF : h_lost + {data, p_b0, 1'b0};
+			end
+			16'h0114: begin
+				if (p_cnt == 2) p_sn <= {data, p_b1, p_b0};
+				if (p_cnt == 3) p_first <= data;
+				if (p_cnt == 4) p_last <= data;
+				if (p_cnt > 4) begin
+					total <= total + cyc_ticks(data, p_sn, p_cnt == 5 && p_first == "P", p_last == "P");
+					if (h_mid && h_lost < 16'hFF00) h_lost <= h_lost + cyc_ticks(data, p_sn, p_cnt == 5 && p_first == "P", p_last == "P");
+					p_sn <= p_sn > 24'd8 ? p_sn - 24'd8 : 24'd0;
+				end
+			end
+			16'h0116: if (p_cnt == 3) begin
+				g_prod <= f_prod({data, p_b2, p_b1, p_b0}); g_exp <= {data[6:0], p_b2[7]}; g_v <= 2'b01;
+			end
 			16'h0111: begin
 				if (p_cnt == 1) total <= total + {15'd0, data, p_b0, 1'b0} + 32'd160;
 				if (p_cnt == 3) total <= total + {15'd0, data, p_b2, 1'b0};
 			end
-			16'h0112: if (p_cnt == 1) total <= total + {13'd0, data, p_b0, 3'd0};
+			16'h0112: if (p_cnt == 1) begin
+				total <= total + {13'd0, data, p_b0, 3'd0};
+				if (h_mid) h_lost <= 16'hFFFF;
+			end
 			default: ;
 			endcase
 			if (p_cnt + 1'd1 == p_len) p_state <= P_ID0;
@@ -426,7 +535,8 @@ end
 // Fetches take three clocks (address, RAM, register); the wave states wait for
 // ticks, which are thousands of clocks apart, so the fetches never stretch a pulse.
 localparam S_IDLE = 4'd0, S_CHUNK = 4'd1, S_HDRB = 4'd2, S_BODY = 4'd3, S_BYTE = 4'd4,
-           S_BIT = 4'd5, S_TONE = 4'd6, S_GAP = 4'd7, S_FETCH = 4'd8, S_END = 4'd9;
+           S_BIT = 4'd5, S_TONE = 4'd6, S_GAP = 4'd7, S_FETCH = 4'd8, S_END = 4'd9,
+           S_CYC = 4'd10, S_GAPF = 4'd11;
 reg  [3:0] st, ret;
 reg [24:0] pos;                               // next image byte
 reg  [1:0] fw;
@@ -440,7 +550,17 @@ reg [11:0] shift;                             // the bits of a byte, LSB out fir
 reg  [3:0] nbits;
 reg        extra;                             // a short wave after the byte
 reg  [3:0] tcnt;                              // ticks into the current bit
-reg [16:0] tone;                              // ticks of carrier / gap left
+reg [23:0] tone;                              // ticks of carrier / gap left
+reg [23:0] s_n;                               // &0114: cycles left
+reg  [7:0] s_first, s_last, s_bits;           // its 'P'/'W' bytes, the cycles of one byte
+reg  [3:0] s_left;                            // cycles left in s_bits
+reg        s_one;                             // the chunk's first cycle
+reg  [1:0] s_t;                               // ticks into the cycle
+reg  [7:0] g_b0, g_b1, g_b2;                  // &0116: the float's bytes
+reg [36:0] gp_prod;
+reg  [7:0] gp_exp;
+wire       s_pulse = (s_one && s_first == "P") || (s_n == 24'd1 && s_last == "P");
+wire [2:0] s_len = s_pulse ? (s_bits[0] ? 3'd2 : 3'd1) : (s_bits[0] ? 3'd4 : 3'd2);
 reg  [1:0] sub;                               // &0111: 1 the &AA byte, 2 the second carrier
 // The next file: the first the deck has not entered (fetched its first '*').
 // The table is a RAM: after file_idx moves, its entry takes two clocks.
@@ -538,6 +658,23 @@ always @(posedge clk) begin
 				if (c_cnt == 0) c_n[7:0] <= fb;
 				else if (c_cnt == 1) begin tone <= {fb, c_n[7:0], 1'b0}; st <= S_TONE; end
 			end
+			16'h0114: begin
+				if (c_cnt == 0) s_n[7:0] <= fb;
+				else if (c_cnt == 1) s_n[15:8] <= fb;
+				else if (c_cnt == 2) s_n[23:16] <= fb;
+				else if (c_cnt == 3) begin s_first <= fb; s_one <= 1'b1; end
+				else if (c_cnt == 4) s_last <= fb;
+				else if (s_n != 0) begin s_bits <= fb; s_left <= 4'd8; s_t <= 0; st <= S_CYC; end
+			end
+			16'h0116: begin
+				if (c_cnt == 0) g_b0 <= fb;
+				else if (c_cnt == 1) g_b1 <= fb;
+				else if (c_cnt == 2) g_b2 <= fb;
+				else if (c_cnt == 3) begin
+					gp_prod <= f_prod({fb, g_b2, g_b1, g_b0}); gp_exp <= {fb[6:0], g_b2[7]};
+					st <= S_GAPF;
+				end
+			end
 			16'h0111: begin
 				if (c_cnt == 0) c_n[7:0] <= fb;
 				else if (c_cnt == 1) begin tone <= {fb, c_n[7:0], 1'b0}; sub <= 2'd0; st <= S_TONE; end
@@ -563,7 +700,7 @@ always @(posedge clk) begin
 				shift <= {1'b1, shift[11:1]};
 				nbits <= nbits - 1'd1;
 				if (nbits == 4'd1) begin
-					if (extra) begin tone <= 17'd2; extra <= 1'b0; st <= S_TONE; end
+					if (extra) begin tone <= 24'd2; extra <= 1'b0; st <= S_TONE; end
 					else if (c_id == 16'h0111 && sub == 2'd1) begin tone <= {c_n, 1'b0}; sub <= 2'd2; st <= S_TONE; end
 					else st <= S_BODY;
 				end
@@ -574,14 +711,28 @@ always @(posedge clk) begin
 			played <= played + 1'd1;
 			level <= ~level;
 			tone <= tone - 1'd1;
-			if (tone == 17'd1) st <= S_BODY;
+			if (tone == 24'd1) st <= S_BODY;
 		end
 		S_GAP: if (tone == 0) st <= S_BODY;
 		else if (tick && running) begin
 			played <= played + 1'd1;
 			tone <= tone - 1'd1;
-			if (tone == 17'd1) st <= S_BODY;
+			if (tone == 24'd1) st <= S_BODY;
 		end
+		// &0114: a fast cycle is two ticks, a slow one four, a pulse half of
+		// that; the level turns at the start and (a wave) the middle
+		S_CYC: if (tick && running) begin
+			played <= played + 1'd1;
+			if (s_t == 0 || (!s_pulse && s_t == {1'b0, s_len[2:1]})) level <= ~level;
+			if ({1'b0, s_t} + 1'd1 == s_len) begin
+				s_t <= 0; s_one <= 1'b0;
+				s_bits <= {1'b0, s_bits[7:1]};
+				s_n <= s_n - 1'd1; s_left <= s_left - 1'd1;
+				if (s_n == 24'd1 || s_left == 4'd1) st <= S_BODY;
+			end
+			else s_t <= s_t + 1'd1;
+		end
+		S_GAPF: begin tone <= f_ticks(gp_prod, gp_exp); level <= 1'b0; st <= S_GAP; end
 		default: ;   // S_END
 		endcase
 	end

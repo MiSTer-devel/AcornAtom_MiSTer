@@ -12,7 +12,7 @@ as `~/dev2/tape-standard.md` asks each core to keep. Dates are 2026-11-08.
 | Turbo | 8x: the CPU at 8 MHz and the tick with it, only while the deck plays (the clock divider's fastest step; was 4x until 2026-11-09) |
 | Quick start | None: the Atom has no boot path that runs before the tape |
 | Next-step hint | Yes, from the block headers: each file's command in turn, RUN after a BASIC file (see README) |
-| Formats | UEF, plain or gzipped (expanded as it downloads, `rtl/gunzip.sv`), chunks &0100 &0104 &0110 &0111 &0112. CSW 1.01 and 2.0, RLE or Z-RLE: demodulated as it downloads into a UEF of &0110 and &0100 chunks (`rtl/csw_in.sv`), so only 300-baud Atom recordings |
+| Formats | UEF, plain or gzipped (expanded as it downloads, `rtl/gunzip.sv`), chunks &0100 &0104 &0110 &0111 &0112 &0114 &0116 (the last two since 2026-11-12: MakeUEF's recordings of real tapes keep the bytes it could not read as &0114 waves, 262 of the 263 local ones). CSW 1.01 and 2.0, RLE or Z-RLE: demodulated as it downloads into a UEF of &0110 and &0100 chunks (`rtl/csw_in.sv`), so only 300-baud Atom recordings |
 
 ## Load times
 
@@ -38,6 +38,7 @@ Atom Software Archive 13 as UEFs (`software/archive.org_atom-archive-13-uef`,
 | First file | Tapes | Hint |
 |---|---|---|
 | BASIC (exec #C2B2 or #CE86) | 985 | `LOAD"NAME"`, then `RUN` |
+| BASIC text with exec = load (starts &0D and a line number; 9 here, 142 of the commercial tapes' files; since 2026-11-12, before that `*RUN`) | counted under machine code | `LOAD"NAME"`, then `RUN` |
 | Machine code (exec inside the file, outside video RAM) | 1,212 | `*RUN"NAME"` |
 | Exec in video RAM (#8000-#9FFF): loading screens (270 named SCREEN), AtoMMC menu pages (2,098 at #8200 in MNUA-MNUG) | 2,514 | `*LOAD"NAME"` |
 | Exec outside the file (data for another program: adventure data, word lists) | 29 | `*LOAD"NAME"` |
@@ -88,6 +89,13 @@ print what to type next (Defender: "NOW LOAD MAIN PROGRAM"; Labyrinth:
 - mister192: Tape speed Normal (BBALL in real time, no x4 on the bar, then
   `TYPE RUN`); Rewind tape after the load (the hint back to `TYPE LOAD"BBALL"`,
   and a second LOAD from the start runs the game).
+
+- mister192, 2026-11-12, MakeUEF recordings of real tapes (local testing only), at 8x:
+  747 (`LOAD"747"`, RUN: "STARTING ALTITUDE IS?"; release 20261112 ended in SUM,
+  ERROR 6: a byte of the last block is &0114 waves); Peeko-Computer (`*LOAD"INDEX"`,
+  both blocks, then the hint `LOAD"PEEKO"`, RUN: the machine's panel; 20261112 gave
+  SUM after INDEX's first block and the hint `*RUN"PEEKO"`); Galaxian (48 blocks,
+  RUN: the title page); Pinball (INSTRUCTIONS, then PINBALL, RUN).
 
 Not yet: SAVE (the tape output goes to the audio only), the hint over the whole
 corpus by loading.
