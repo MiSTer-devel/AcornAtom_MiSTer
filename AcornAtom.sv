@@ -47,8 +47,9 @@ assign HDMI_BOB_DEINT = 0;
 
 `include "build_id.v" 
 // Laid out per ~/dev2/osd-standard.md: media on the top page, settings on
-// pages P1 Machine / P2 Video / P3 Input / P4 Audio, every setting except
-// Input latched at reset (cfg below), "Changes pending" + "Apply and reset".
+// pages P1 Machine / P2 Video / P3 Input / P4 Audio. Machine and Audio settings
+// are latched at reset (cfg below), "Changes pending" + "Apply and reset";
+// Video and Input settings act at once.
 // Status bits 1-12 keep their old meaning; 4/5 changed from an audio source
 // select to Speaker/SID enables (v,1), and Keyboard layout's values were
 // reordered to put PC (US) first (v,2).
@@ -158,15 +159,17 @@ wire        tape_info_req;
 wire  [7:0] tape_info;
 
 // The settings the machine runs with, taken from the OSD at every reset
-// (Apply and reset, the board's reset, a core reload, a ROM load). Input
+// (Apply and reset, the board's reset, a core reload, a ROM load). Video
+// settings (aspect ratio 12:11, scandoubler Fx 3:1, character set 8,
+// background 9, border 23: none of them changes what the machine does), input
 // settings (keyboard layout, 7:6), the triggers (BREAK 15, Rewind tape 18)
 // and the tape rows (Tape audio 16, Tape speed 17, Tape overlay 19: they act
 // at once or when the deck next starts, per the tape standard) read status
 // directly and stay out of the pending compare.
 reg  [127:0] cfg = 0;
 always @(posedge clk_sys) if (reset) cfg <= status;
-wire pending = {status[23], status[14:13], status[12:8], status[5:1]}
-            != {cfg[23],    cfg[14:13],    cfg[12:8],    cfg[5:1]};
+wire pending = {status[14:13], status[10], status[5:4]}
+            != {cfg[14:13],    cfg[10],    cfg[5:4]};
 wire  [1:0] buttons;
 
 wire [15:0] joy1, joy2;
@@ -374,7 +377,7 @@ break_keys break_keys
 
 ///////////////////////////////////////////////////
 
-wire charset = cfg[8];
+wire charset = status[8];
 
 wire tape_out;
 wire pixel_clock;
@@ -395,8 +398,8 @@ AtomFpga_Core AcornAtom
 	// OSD order PC (US), PC (UK), Atom (original), Atom (game); rtl/keyboard.sv's
 	// encoding is 0 UK, 1 US, 2 original, 3 game.
 	.layout(status[7:6] == 2'd0 ? 2'd1 : status[7:6] == 2'd1 ? 2'd0 : status[7:6]),
-	.BLACK_BACKGND(~cfg[9]),
-	.border(~cfg[23]),
+	.BLACK_BACKGND(~status[9]),
+	.border(~status[23]),
 	.computer(cfg[10]),
 	.turbo_default(cfg[14:13]),
 	.osd_break(osd_break),
@@ -513,9 +516,9 @@ wire field, vga80_on;   // GODIL VGA80x40: 640x480 interlaced, field 1 = top
 // - Border Off: the 256x192 picture is 439:384 = 8:7 (it was shown at 4:3,
 //   17% too wide).
 // - VGA80x40: 4:3, as on the GODIL's VGA monitor (square pixels at 31 kHz).
-wire [1:0] ar = cfg[12:11];
-wire [7:0] ar_x = vga80_on ? 8'd4 : cfg[23] ? 8'd8 : 8'd106;
-wire [7:0] ar_y = vga80_on ? 8'd3 : cfg[23] ? 8'd7 : 8'd81;
+wire [1:0] ar = status[12:11];
+wire [7:0] ar_x = vga80_on ? 8'd4 : status[23] ? 8'd8 : 8'd106;
+wire [7:0] ar_y = vga80_on ? 8'd3 : status[23] ? 8'd7 : 8'd81;
 
 assign VIDEO_ARX = (!ar) ? {5'd0, ar_x} : (ar - 1'd1);
 assign VIDEO_ARY = (!ar) ? {5'd0, ar_y} : 12'd0;
@@ -650,7 +653,7 @@ video_mixer #(.GAMMA(1)) video_mixer
 // VGA_F1 = field every glyph row traded places with its neighbour).
 assign VGA_F1 = vga80_on & ~field;
 reg [2:0] scale;
-always @(posedge clk_42) scale = cfg[3:1];
+always @(posedge clk_42) scale <= status[3:1];
 wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
 wire       scandoubler = ((scale && !vga80_on) || forced_scandoubler);
 assign VGA_SL = sl[1:0];

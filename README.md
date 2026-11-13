@@ -37,9 +37,10 @@ The [Acorn Atom](https://en.wikipedia.org/wiki/Acorn_Atom) was the predecessor o
 
 ## OSD
 The top page holds the media (the SD card image and Load ROM) and the pages
-Machine, Video, Input and Audio. Keyboard layout (Input) applies at once; every
-other setting is applied by **Apply and reset** (or any other reset), and
-"Changes pending" shows while an OSD value differs from what the machine runs.
+Machine, Video, Input and Audio. Video and Input settings apply at once. Model,
+CPU speed and the Audio settings are applied by **Apply and reset** (or any other
+reset), and "Changes pending" shows while one of them differs from what the
+machine runs.
 Machine also has BREAK, Shift-BREAK and Ctrl-BREAK buttons, and the tape rows
 (Tape speed, Rewind tape); Tape overlay is on Video, Tape audio on Audio.
 
@@ -72,8 +73,10 @@ the box in the bottom-left corner says what to do, read from the tape itself:
    backup copy and skipped.
 
 The command is chosen from the file's header: execution address #C2B2 or #CE86
-is BASIC; an execution address inside the file's own memory (outside video RAM)
-is machine code; anything else is data. That rule matched every tape of the
+is BASIC, and so is a file that starts with BASIC text and executes at its own
+load address (most commercial BASIC tapes: #2900 for both); an execution address
+inside the file's own memory (outside video RAM) is machine code; anything else
+is data. That rule matched every tape of the
 archive's 4,745 by kind, but it is a rule, not something the tape states.
 
 The archive's single-block files (2,568 of them) were converted with the "more
